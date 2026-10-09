@@ -12,6 +12,7 @@ import {
   hasRoom, trackTypeFor, copySelected, paste, deleteTrack, updateClips, applyTransition,
 } from '../lib/actions';
 import { addSfx } from '../lib/sfx';
+import { toggleVfx } from './VfxPanel';
 import { volAt, localAt, moveKey, deleteKey, toggleKeyAtPlayhead } from '../lib/keyframes';
 import { waveforms, stripImage, importPaths } from '../lib/media';
 import { showMenu } from './ui';
@@ -316,6 +317,7 @@ const ClipView = memo(function ClipView({ c, laneH, drag, dragging }: { c: Clip;
           )}
           {c.muted && c.kind === 'video' && <VolumeX size={11} />}
           {c.afx && <span className="badge">FX</span>}
+          {!!c.vfx?.length && <span className="badge">✦{c.vfx.length}</span>}
           {c.chan && <span className="badge">{c.chan === 'L' ? 'Sol' : c.chan === 'R' ? 'Sağ' : c.chan === 'mid' ? 'Vokal' : 'Müzik'}</span>}
         </div>
       )}
@@ -698,6 +700,14 @@ export default function Timeline() {
         addText(data.preset, { start: st, trackId: trackId || undefined });
       } else if (data.type === 'sfx') {
         addSfx(data.id, st);
+      } else if (data.type === 'vfx') {
+        const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.clip') as HTMLElement | null;
+        if (!el?.dataset.id) {
+          toast('Efekti bir klibin üzerine bırak');
+          return;
+        }
+        toggleVfx(el.dataset.id, data.id);
+        select([el.dataset.id]);
       } else if (data.type === 'trans') {
         const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.clip') as HTMLElement | null;
         const id = el?.dataset.id;

@@ -11,7 +11,7 @@ export interface Toast {
   kind?: 'info' | 'error' | 'success';
 }
 
-export type LeftTab = 'media' | 'sfx' | 'text' | 'trans' | 'record' | 'tempo' | 'intro' | 'thumb' | 'chapters';
+export type LeftTab = 'media' | 'sfx' | 'text' | 'vfx' | 'trans' | 'record' | 'tempo' | 'suggest' | 'youtube' | 'live' | 'intro' | 'thumb' | 'chapters';
 
 export type RecStatus = 'idle' | 'countdown' | 'recording' | 'paused' | 'saving';
 

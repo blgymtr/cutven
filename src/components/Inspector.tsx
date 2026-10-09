@@ -4,6 +4,8 @@ import { useStore, edit } from '../store';
 import type { Clip, Project, TextStyle, TransType } from '../types';
 import { updateClips, detachAudio, deleteSelected } from '../lib/actions';
 import { TRANSITIONS } from '../lib/transitions';
+import { VfxTab } from './VfxPanel';
+import { splitAtScenes } from '../lib/convert';
 import { volAt, hasKeyAtPlayhead, setVolumeAtPlayhead, toggleKeyAtPlayhead, clearKeys, autoDuck } from '../lib/keyframes';
 import { AFX, afxById } from '../lib/afx';
 import { cutSilences, silencePreview, splitChannels, setChannel, exportClipAudio } from '../lib/audiotools';
@@ -15,16 +17,16 @@ import { ASPECTS } from '../lib/project';
 import { Slider, Toggle, Segmented, ColorInput } from './ui';
 import { Shape } from './StartScreen';
 
-type Tab = 'text' | 'visual' | 'audio' | 'speed' | 'color';
-const TAB_NAMES: Record<Tab, string> = { text: 'Metin', visual: 'Görüntü', audio: 'Ses', speed: 'Hız', color: 'Renk' };
+type Tab = 'text' | 'visual' | 'audio' | 'speed' | 'color' | 'vfx';
+const TAB_NAMES: Record<Tab, string> = { text: 'Metin', visual: 'Görüntü', audio: 'Ses', speed: 'Hız', color: 'Renk', vfx: 'Efekt' };
 
 function tabsFor(c: Clip, p: Project): Tab[] {
   const m = mediaOf(p, c);
-  if (c.kind === 'text') return ['text', 'visual'];
-  if (c.kind === 'color') return ['visual'];
-  if (c.kind === 'image') return ['visual', 'color'];
+  if (c.kind === 'text') return ['text', 'visual', 'vfx'];
+  if (c.kind === 'color') return ['visual', 'vfx'];
+  if (c.kind === 'image') return ['visual', 'color', 'vfx'];
   if (c.kind === 'audio') return ['audio', 'speed'];
-  return m?.hasAudio ? ['visual', 'audio', 'speed', 'color'] : ['visual', 'speed', 'color'];
+  return m?.hasAudio ? ['visual', 'audio', 'speed', 'color', 'vfx'] : ['visual', 'speed', 'color', 'vfx'];
 }
 
 function Group({ title, right, children }: { title?: string; right?: React.ReactNode; children: React.ReactNode }) {
@@ -88,6 +90,11 @@ function VisualTab({ c, p }: { c: Clip; p: Project }) {
               <button className="btn sm" onClick={() => up((x) => Object.assign(x, { x: 0, y: 0, scale: fillScale(p, c) }), 'fill')}>
                 <Maximize size={13} /> Doldur
               </button>
+              {c.kind === 'video' && (
+                <button className="btn sm" title="Görüntüdeki sahne değişimlerini bul ve oradan böl" onClick={() => splitAtScenes(c.id)}>
+                  <Scissors size={13} /> Sahnelerden böl
+                </button>
+              )}
             </>
           )}
         </div>
@@ -556,6 +563,7 @@ export default function Inspector() {
         {clip && active === 'audio' && <AudioTab c={clip} />}
         {clip && active === 'speed' && <SpeedTab c={clip} />}
         {clip && active === 'color' && <ColorTab c={clip} />}
+        {clip && active === 'vfx' && <VfxTab c={clip} />}
         {clip && (
           <p className="hint" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <Scissors size={12} /> Bölmek için <kbd>S</kbd>, silmek için <kbd>Del</kbd>

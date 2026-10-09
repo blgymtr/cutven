@@ -14,7 +14,7 @@ import type { TransType } from '../types';
 /* ------------------------------------------------------------ sound effects */
 
 export function SfxPanel() {
-  const cats = ['Geçiş', 'Vurgu', 'Arayüz', 'Ortam'] as const;
+  const cats = ['Geçiş', 'Vurgu', 'Komik', 'Arayüz', 'Ortam'] as const;
   const [playing, setPlaying] = useState<string | null>(null);
   return (
     <>

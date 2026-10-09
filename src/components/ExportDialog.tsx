@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, FolderOpen, Check, Film, Music, Play } from 'lucide-react';
-import { useStore, set } from '../store';
+import { useStore, set, edit, toast } from '../store';
+import { metaOf, uploadToYoutube } from '../lib/youtube';
 import { buildExport, type Loudness } from '../lib/exporter';
 import { thumbCoverPath } from '../lib/thumb';
 import { engine } from '../lib/engine';
@@ -81,6 +82,11 @@ export default function ExportDialog() {
       if (r.ok) {
         setProgress(1);
         setPhase('done');
+        if (format === 'mp4') {
+          edit((d) => void (d.lastExport = out), { record: false });
+          const st = await window.cv.invoke<{ connected: boolean }>('yt:status');
+          if (st.connected && metaOf(project).autoUpload) startUpload(out);
+        }
       } else if (r.cancelled) setPhase('setup');
       else {
         setError(r.error || 'Bilinmeyen hata');
@@ -92,6 +98,17 @@ export default function ExportDialog() {
     }
   };
 
+  const [yt, setYt] = useState<{ busy: boolean; p: number; url?: string; studio?: string; error?: string } | null>(null);
+  useEffect(() => window.cv.on('yt:progress', (d) => setYt((y) => (y ? { ...y, p: d.progress } : y))), []);
+  const startUpload = async (path: string) => {
+    setYt({ busy: true, p: 0 });
+    try {
+      const r = await uploadToYoutube(path);
+      setYt({ busy: false, p: 1, url: r.url, studio: r.studio });
+    } catch (e: any) {
+      setYt({ busy: false, p: 0, error: String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') });
+    }
+  };
   const eta = progress > 0.02 ? (elapsed / progress) * (1 - progress) : null;
 
   return (
@@ -176,6 +193,27 @@ export default function ExportDialog() {
               </div>
             </div>
           )}
+          {phase === 'done' && yt && (
+            <div className="yt-export">
+              {yt.busy && (
+                <>
+                  <div className="muted">YouTube’a yükleniyor… %{Math.round(yt.p * 100)}</div>
+                  <div className="progress" style={{ marginTop: 6 }}>
+                    <i style={{ width: `${yt.p * 100}%` }} />
+                  </div>
+                </>
+              )}
+              {yt.url && (
+                <div className="yt-done">
+                  <Check size={14} color="var(--ok)" /> YouTube’a yüklendi
+                  <button className="btn sm ghost" onClick={() => window.cv.invoke('shell:openUrl', yt.studio)}>
+                    Studio’da aç
+                  </button>
+                </div>
+              )}
+              {yt.error && <div className="rec-error">{yt.error}</div>}
+            </div>
+          )}
 
           {phase === 'error' && (
             <div>
@@ -210,6 +248,21 @@ export default function ExportDialog() {
               <button className="btn" onClick={() => window.cv.invoke('shell:openPath', outPath)}>
                 <Play size={14} /> Oynat
               </button>
+              {format === 'mp4' && !yt?.busy && !yt?.url && (
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    const st = await window.cv.invoke<{ connected: boolean }>('yt:status');
+                    if (st.connected) startUpload(outPath);
+                    else {
+                      set({ exportOpen: false, leftTab: 'youtube' });
+                      toast('Önce YouTube hesabını bağla');
+                    }
+                  }}
+                >
+                  YouTube’a yükle
+                </button>
+              )}
               <button className="btn primary" onClick={close}>
                 Tamam
               </button>

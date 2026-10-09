@@ -6,6 +6,7 @@ import { drawText, ensureFont, measureText } from './text';
 import { BLUR, ffTrans, trDurations, visStart } from './transitions';
 import { afxFfmpeg, chanFfmpeg } from './afx';
 import { volExpr } from './keyframes';
+import { vfxFfmpeg, vfxMotionFf, hasPixelVfx, blurBg } from './vfx';
 
 export interface ExportOptions {
   format: 'mp4' | 'mp3' | 'wav';
@@ -119,6 +120,7 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
         let w: number;
         let h: number;
         let colorable = false;
+        let mkHead: (() => string) | null = null;
 
         if (c.kind === 'text') {
           const png = await renderTextPng(c, k);
@@ -140,8 +142,8 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
           const scale = `scale=${w}:${h}:flags=bicubic` + (c.kind === 'video' && (!m.colorspace || m.colorspace === 'unknown') ? ':in_color_matrix=bt709' : '');
           if (c.kind === 'image') {
             // ffmpeg applies JPEG EXIF orientation itself (as Chromium does in the preview)
-            const i = addInput(['-loop', '1', '-framerate', String(fps), '-t', n3(len), '-i', m.path]);
-            head = `[${i}:v]setpts=PTS-STARTPTS,${scale},format=rgba`;
+            mkHead = () => `[${addInput(['-loop', '1', '-framerate', String(fps), '-t', n3(len), '-i', m.path])}:v]setpts=PTS-STARTPTS`;
+            head = `${mkHead()},${scale},format=rgba`;
           } else {
             let srcIn = c.in - pre * c.speed;
             let hold = 0;
@@ -149,13 +151,34 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
               hold = -srcIn / c.speed;
               srcIn = 0;
             }
-            const i = addInput(['-ss', n3(srcIn), '-t', n3(c.out - srcIn), '-i', m.path]);
-            head = `[${i}:v]setpts=(PTS-STARTPTS)/${n3(c.speed)}` + (hold > 0 ? `,tpad=start_duration=${n3(hold)}:start_mode=clone` : '') + `,${scale},format=rgba`;
+            const si = srcIn;
+            const hd = hold;
+            mkHead = () =>
+              `[${addInput(['-ss', n3(si), '-t', n3(c.out - si), '-i', m.path])}:v]setpts=(PTS-STARTPTS)/${n3(c.speed)}` +
+              (hd > 0 ? `,tpad=start_duration=${n3(hd)}:start_mode=clone` : '');
+            head = `${mkHead()},${scale},format=rgba`;
           }
         }
 
         const chain: string[] = [head, ...colorFfmpeg(colorable ? c.color : undefined, c.opacity)];
         let body = chain.join(',');
+        if (c.vfx?.length && hasPixelVfx(c)) {
+          const v0 = L();
+          lines.push(`${body}[${v0}]`);
+          const out = await vfxFfmpeg(c, v0, w, h, { lines, label: L, addInput, fps, L: len });
+          body = `[${out}]null`;
+        }
+        const mo = c.vfx?.length ? vfxMotionFf(c, len, W, H, vs) : { zoom: null, pan: null, rot: null, dx: '', dy: '' };
+        // blurred fill behind the clip
+        if (mkHead && c.vfx?.length && blurBg(c) > 0) {
+          const bgl = L();
+          const bgo = L();
+          lines.push(
+            `${mkHead()},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${n3(40 * blurBg(c) * k)},format=rgba,colorchannelmixer=rr=0.6:gg=0.6:bb=0.6:aa=${n3(c.opacity)},${[...fx.pre, `setpts=PTS-STARTPTS+${n3(vs)}/TB`].join(',')}[${bgl}]`,
+          );
+          lines.push(`[${cur}][${bgl}]overlay=0:0:format=rgb:eof_action=pass[${bgo}]`);
+          cur = bgo;
+        }
         // blur transitions: blurred copies cross-faded over the sharp clip
         if (fx.blurs.length) {
           const sharp = L();
@@ -172,10 +195,15 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
           body = `[${base}]null`;
         }
         const tail: string[] = [];
-        if (fx.zoom) tail.push(`zoompan=z='${fx.zoom}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${w}x${h}:fps=${fps}`);
+        const zexpr = [fx.zoom, mo.zoom].filter(Boolean).join('*');
+        if (zexpr) {
+          const px = mo.pan ? `+(${mo.pan}-0.5)*(iw-iw/zoom)` : '';
+          tail.push(`zoompan=z='${zexpr}':x='iw/2-iw/zoom/2${px}':y='ih/2-ih/zoom/2':d=1:s=${w}x${h}:fps=${fps}`);
+        }
         const rad = (c.rotation * Math.PI) / 180;
-        if (fx.rot) {
-          tail.push(`rotate=a='${rad.toFixed(6)}+${fx.rot}':c=black@0:ow=hypot(iw\\,ih):oh=ow`);
+        const rexpr = [fx.rot, mo.rot].filter(Boolean).join('+');
+        if (rexpr) {
+          tail.push(`rotate=a='${rad.toFixed(6)}+${rexpr}':c=black@0:ow=hypot(iw\\,ih):oh=ow`);
         } else if (Math.abs(c.rotation) > 0.01) {
           tail.push(`rotate=a=${rad.toFixed(6)}:c=black@0:ow=rotw(${rad.toFixed(6)}):oh=roth(${rad.toFixed(6)})`);
         }
@@ -184,8 +212,8 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
         lines.push(`${body},${tail.join(',')}[${label}]`);
         const cx = (b.cx * k).toFixed(2);
         const cy = (b.cy * k).toFixed(2);
-        const dx = fx.dx;
-        const dy = fx.dy;
+        const dx = fx.dx + mo.dx;
+        const dy = fx.dy + mo.dy;
         const animated = !!(dx || dy);
         const pos = animated
           ? `x='${cx}-overlay_w/2${dx}':y='${cy}-overlay_h/2${dy}':eval=frame`

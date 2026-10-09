@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
 import RecordPanel from './RecordPanel';
-import { Mic, Plus, Upload, Music, Image as ImageIcon, Film, X, Copy, Bookmark, AlertTriangle, FolderOpen, ClipboardPaste, MonitorUp, Video, Square, Type, Blend, Gauge, Clapperboard, ListOrdered } from 'lucide-react';
+import { Mic, Plus, Upload, Music, Image as ImageIcon, Film, X, Copy, Bookmark, AlertTriangle, FolderOpen, ClipboardPaste, MonitorUp, Video, Square, Type, Blend, Gauge, Clapperboard, ListOrdered, Sparkles, Lightbulb, SquarePlay as Youtube, Radio } from 'lucide-react';
 import TempoPanel from './TempoPanel';
+import { VfxPanel } from './VfxPanel';
+import SuggestPanel from './SuggestPanel';
+import YouTubePanel from './YouTubePanel';
+import LivePanel from './LivePanel';
 import { SfxPanel, TransPanel, IntroPanel, ThumbPanel } from './Panels';
 import { set, useStore, edit, toast, type LeftTab } from '../store';
 import type { MediaItem } from '../types';
@@ -266,11 +270,15 @@ function ChaptersTab() {
 
 const RAIL = [
   { id: 'media', label: 'Medya', icon: Film },
-  { id: 'sfx', label: 'Efektler', icon: Music },
+  { id: 'sfx', label: 'Sesler', icon: Music },
   { id: 'text', label: 'Metin', icon: Type },
+  { id: 'vfx', label: 'Efekt', icon: Sparkles },
   { id: 'trans', label: 'Geçiş', icon: Blend },
   { id: 'record', label: 'Kayıt', icon: Mic },
   { id: 'tempo', label: 'Tempo', icon: Gauge },
+  { id: 'suggest', label: 'Öneri', icon: Lightbulb },
+  { id: 'youtube', label: 'YouTube', icon: Youtube },
+  { id: 'live', label: 'Canlı', icon: Radio },
   { id: 'intro', label: 'Intro', icon: Clapperboard },
   { id: 'thumb', label: 'Kapak', icon: ImageIcon },
   { id: 'chapters', label: 'Bölüm', icon: ListOrdered },
@@ -280,6 +288,10 @@ const TITLES: Record<LeftTab, string> = {
   media: 'Medya',
   sfx: 'Ses efektleri',
   text: 'Metin',
+  vfx: 'Efektler & lens',
+  suggest: 'Öneriler',
+  youtube: 'YouTube',
+  live: 'Canlı yayın',
   trans: 'Geçişler',
   record: 'Seslendirme',
   tempo: 'Tempo koçu',
@@ -313,8 +325,12 @@ export default function MediaPanel() {
           {tab === 'sfx' && <SfxPanel />}
           {tab === 'text' && <TextTab />}
           {tab === 'trans' && <TransPanel />}
+          {tab === 'vfx' && <VfxPanel />}
           {tab === 'record' && <RecordPanel />}
           {tab === 'tempo' && <TempoPanel />}
+          {tab === 'suggest' && <SuggestPanel />}
+          {tab === 'youtube' && <YouTubePanel />}
+          {tab === 'live' && <LivePanel />}
           {tab === 'intro' && <IntroPanel />}
           {tab === 'thumb' && <ThumbPanel />}
           {tab === 'chapters' && <ChaptersTab />}

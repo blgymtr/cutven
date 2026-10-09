@@ -119,6 +119,14 @@ export interface Clip {
   afx?: string;
   chan?: AudioChannel;
   vkeys?: VolKey[];
+  /** visual / lens effects, applied in order */
+  vfx?: Vfx[];
+}
+
+export interface Vfx {
+  id: string;
+  amount: number;
+  bpm?: number;
 }
 
 export interface Marker {
@@ -149,6 +157,27 @@ export interface Project {
   /** narration script (tempo coach / prompter) */
   script?: string;
   thumbDesign?: ThumbDesign;
+  /** YouTube metadata / upload settings */
+  yt?: YtMeta;
+  /** last exported file (for YouTube upload) */
+  lastExport?: string;
+}
+
+export interface YtMeta {
+  title: string;
+  description: string;
+  tags: string[];
+  category: string;
+  privacy: 'private' | 'unlisted' | 'public';
+  /** ISO time for scheduled publish (privacy must be private) */
+  publishAt?: string;
+  madeForKids: boolean;
+  language: string;
+  /** upload right after export */
+  autoUpload: boolean;
+  includeChapters: boolean;
+  videoId?: string;
+  uploadedAt?: number;
 }
 
 export type ProjectStatus = 'idea' | 'shoot' | 'edit' | 'ready' | 'published';

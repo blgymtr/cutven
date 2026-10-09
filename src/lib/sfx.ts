@@ -3,6 +3,7 @@ import { importPaths } from './media';
 import { clipFromMedia } from './actions';
 import { audioTrackFor } from './audiotools';
 import { mediaUrl } from './util';
+import { SFX2 } from './sfx2';
 
 /**
  * Built-in sound effects, synthesized offline (no downloads, no licenses).
@@ -15,7 +16,7 @@ type Gen = (c: OfflineAudioContext) => void;
 export interface SfxDef {
   id: string;
   name: string;
-  cat: 'Geçiş' | 'Arayüz' | 'Vurgu' | 'Ortam';
+  cat: 'Geçiş' | 'Arayüz' | 'Vurgu' | 'Ortam' | 'Komik';
   dur: number;
   gen: Gen;
 }
@@ -85,7 +86,7 @@ function burst(c: OfflineAudioContext, t0: number, dur: number, f: number, q: nu
   n.start(t0);
 }
 
-export const SFX: SfxDef[] = [
+const SFX1: SfxDef[] = [
   { id: 'whoosh', name: 'Whoosh', cat: 'Geçiş', dur: 0.9, gen: (c) => whoosh(c, 0.9, 250, 2800, 500, 0.9, 11) },
   { id: 'swoosh', name: 'Hızlı swoosh', cat: 'Geçiş', dur: 0.45, gen: (c) => whoosh(c, 0.45, 800, 5000, 1500, 0.8, 23) },
   {
@@ -222,6 +223,8 @@ export const SFX: SfxDef[] = [
     },
   },
 ];
+
+export const SFX: SfxDef[] = [...SFX1, ...SFX2];
 
 function encodeWav(buf: AudioBuffer): Uint8Array {
   const ch = buf.numberOfChannels;

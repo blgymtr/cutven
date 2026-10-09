@@ -28,6 +28,7 @@ import '@fontsource/playfair-display/700-italic.css';
 import '@fontsource/permanent-marker/400.css';
 import './styles.css';
 import './features.css';
+import './v2.css';
 import App from './App';
 
 createRoot(document.getElementById('root')!).render(<App />);
@@ -45,4 +46,9 @@ import * as introoutro from './lib/introoutro';
 import * as tempo from './lib/tempo';
 import * as thumb from './lib/thumb';
 import * as keyframes from './lib/keyframes';
-(window as any).__cv = { store, actions, media, project, engine, buildExport, audiotools, sfx, introoutro, tempo, thumb, keyframes };
+import * as convert from './lib/convert';
+import * as suggest from './lib/suggest';
+import * as youtube from './lib/youtube';
+import { live } from './lib/live';
+import { recorder } from './lib/recorder';
+(window as any).__cv = { store, actions, media, project, engine, buildExport, audiotools, sfx, introoutro, tempo, thumb, keyframes, convert, suggest, youtube, live, recorder };

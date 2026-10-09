@@ -2,7 +2,18 @@ import type { Clip, MediaItem, Project, TextStyle } from '../types';
 import { clipDur } from './util';
 import { measureText, drawText } from './text';
 import { colorFilterCss } from './color';
-import { transState, visStart } from './transitions';
+import { transState, visStart, trDurations } from './transitions';
+import { vfxMotion, vfxPixels, hasPixelVfx, blurBg } from './vfx';
+
+let contentCv: HTMLCanvasElement | null = null;
+function contentCanvas(w: number, h: number) {
+  if (!contentCv) contentCv = document.createElement('canvas');
+  if (contentCv.width !== w || contentCv.height !== h) {
+    contentCv.width = w;
+    contentCv.height = h;
+  }
+  return contentCv;
+}
 
 export const mediaOf = (p: Project, c: Clip): MediaItem | undefined =>
   c.mediaId ? p.media.find((m) => m.id === c.mediaId) : undefined;
@@ -70,31 +81,77 @@ export function drawFrame(
   ctx.fillStyle = p.background || '#000';
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.imageSmoothingQuality = 'high';
+  const fps = p.fps || 30;
   for (const c of activeVisuals(p, t)) {
     const tr = transState(c, t, p.width, p.height);
+    const T = t - visStart(c);
+    const L = trDurations(c).L;
+    const mo = c.vfx?.length ? vfxMotion(c, T, t, L, p.width, p.height) : null;
     const a = c.opacity * tr.alpha;
+    const box = clipBox(p, c);
+    // blurred full-frame fill behind the clip
+    const bb = c.vfx?.length ? blurBg(c) : 0;
+    if (bb > 0 && a > 0.001 && (c.kind === 'video' || c.kind === 'image')) {
+      const src = source(c);
+      if (src) {
+        const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || box.w;
+        const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || box.h;
+        const cover = Math.max(p.width / sw, p.height / sh);
+        ctx.save();
+        ctx.setTransform(k, 0, 0, k, 0, 0);
+        ctx.globalAlpha = a;
+        ctx.filter = `blur(${(40 * bb * k).toFixed(2)}px) brightness(0.6)`;
+        ctx.drawImage(src, (p.width - sw * cover) / 2, (p.height - sh * cover) / 2, sw * cover, sh * cover);
+        ctx.restore();
+      }
+    }
     if (a > 0.001) {
-      const box = clipBox(p, c);
       ctx.save();
       ctx.setTransform(k, 0, 0, k, 0, 0);
-      ctx.translate(box.cx + tr.dx, box.cy + tr.dy);
-      const rot = box.rot + tr.rot;
+      ctx.translate(box.cx + tr.dx + (mo?.dx || 0), box.cy + tr.dy + (mo?.dy || 0));
+      const rot = box.rot + tr.rot + (mo?.rot || 0);
       if (rot) ctx.rotate((rot * Math.PI) / 180);
       ctx.globalAlpha = a;
+      const pixel = !!c.vfx?.length && hasPixelVfx(c);
       const filters: string[] = [];
-      const cf = c.kind === 'video' || c.kind === 'image' ? colorFilterCss(c.color) : 'none';
+      const cf = !pixel && (c.kind === 'video' || c.kind === 'image') ? colorFilterCss(c.color) : 'none';
       if (cf !== 'none') filters.push(cf);
       if (tr.blur > 0.3) filters.push(`blur(${(tr.blur * k * c.scale).toFixed(2)}px)`);
       if (filters.length) ctx.filter = filters.join(' ');
-      if (tr.zoom !== 1) {
+      const zoom = tr.zoom * (mo?.zoom || 1);
+      const pad = c.kind === 'text' && c.text ? textPad(c.text) * c.scale : 0;
+      if (zoom !== 1) {
         // punch-in inside the clip's own frame (matches ffmpeg zoompan)
-        const pad = c.kind === 'text' && c.text ? textPad(c.text) * c.scale : 0;
         ctx.beginPath();
         ctx.rect(-box.w / 2 - pad, -box.h / 2 - pad, box.w + pad * 2, box.h + pad * 2);
         ctx.clip();
-        ctx.scale(tr.zoom, tr.zoom);
+        ctx.scale(zoom, zoom);
+        if (mo && mo.pan !== 0.5) ctx.translate(-(mo.pan - 0.5) * (box.w + pad * 2 - (box.w + pad * 2) / zoom), 0);
       }
-      if (c.kind === 'text' && c.text) {
+      if (pixel) {
+        // render the clip into its own canvas, run the effects, then place it
+        const cw = Math.max(2, Math.round((box.w + pad * 2) * k));
+        const ch = Math.max(2, Math.round((box.h + pad * 2) * k));
+        const content = contentCanvas(cw, ch);
+        const g = content.getContext('2d')!;
+        g.clearRect(0, 0, cw, ch);
+        if (c.kind === 'text' && c.text) {
+          g.setTransform(c.scale * k, 0, 0, c.scale * k, cw / 2, ch / 2);
+          drawText(g, c.text);
+          g.setTransform(1, 0, 0, 1, 0, 0);
+        } else if (c.kind === 'color') {
+          g.fillStyle = c.fill || '#000000';
+          g.fillRect(0, 0, cw, ch);
+        } else {
+          const src = source(c);
+          const f = colorFilterCss(c.color);
+          if (f !== 'none') g.filter = f;
+          if (src) g.drawImage(src, 0, 0, cw, ch);
+          g.filter = 'none';
+        }
+        const out = vfxPixels(c, content, T, fps);
+        ctx.drawImage(out, -box.w / 2 - pad, -box.h / 2 - pad, box.w + pad * 2, box.h + pad * 2);
+      } else if (c.kind === 'text' && c.text) {
         ctx.scale(c.scale, c.scale);
         drawText(ctx, c.text);
       } else if (c.kind === 'color') {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays } from 'lucide-react';
+import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays, Smartphone } from 'lucide-react';
+import { convertToShorts } from '../lib/convert';
 import { set, undo, redo, useStore, edit, toast } from '../store';
 import { closeProject, saveProject, saveProjectAs, renameProject } from '../lib/project';
 import { STATUSES, statusOf, dayLabel } from '../lib/plan';
@@ -93,6 +94,7 @@ export default function TopBar() {
           showMenu(r.left, r.bottom + 6, [
             { label: 'Kaydet', icon: <Save size={14} />, k: 'Ctrl+S', onClick: () => saveProject(true).then(() => toast('Kaydedildi', 'success')) },
             { label: 'Farklı kaydet…', icon: <FolderInput size={14} />, k: 'Ctrl+Shift+S', onClick: () => saveProjectAs() },
+            { label: 'Shorts’a çevir (9:16 kopya)', icon: <Smartphone size={14} />, onClick: () => convertToShorts() },
             { sep: true },
             { label: 'Projeler', icon: <ChevronLeft size={14} />, onClick: () => closeProject() },
           ]);

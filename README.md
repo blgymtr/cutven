@@ -30,11 +30,31 @@ Cutven, bir YouTube videosunu fikir aşamasından yayına kadar tek bir masaüst
 ### ✨ Geçişler
 Solma, Çözülme, Siyaha, Beyaz flaş, dört yöne kaydırma, Yakınlaş, Döndür ve Bulanık. Klibin başına ya da sonuna sürüklemen yeterli.
 
+### 🌀 Efektler & lens
+28 efekt, üst üste kullanılabilir ve şiddeti ayarlanabilir:
+- **Hareket:** Sallantı, Darbe, Nabız zoom (müziğin BPM'ine göre), Yaklaş / Uzaklaş (Ken Burns), Kaydırma, Salınım
+- **Lens:** Balık gözü, Renk kayması (RGB split), Parlama, Işık sızıntısı, Vinyet, Bulanık, Keskin, Bulanık dolgu (dikey videoda boş kenarları doldurur)
+- **Retro:** Glitch, VHS, Eski film, Film greni, Piksel, Poster
+- **Stil:** Sinema bandı, Flaş, Negatif, Ayna, Dörtlü ekran, Yatay / dikey çevir
+
+### 💡 Öneriler
+Projeyi tarayıp "yayına hazırlık" puanı verir ve tek tıkla düzeltmeler önerir: ilk saniyelerde kanca yok, uzun sabit planlar, siyah boşluklar, uzun duraklamalar, kısık ses, müziğin konuşmayı bastırması, kenara taşan yazılar, abone ol hatırlatması, bitiş ekranı, bölümler, küçük resim…
+
+### 📺 YouTube
+Başlık, açıklama (bölümler, kanal şablonu ve hashtag'ler otomatik eklenir), etiket önerisi, kategori, dil, gizlilik ve planlı yayın. Kendi Google hesabını bağlayınca video ve küçük resim doğrudan yüklenir; istersen dışa aktarma biter bitmez otomatik.
+
+### 🔴 Canlı yayın
+Ekran, kamera ya da ikisi birden (köşede yuvarlak kamera), başlık bandı, mikrofon ve bilgisayar sesi ile YouTube Live'a (veya herhangi bir RTMP adresine) yayın; aynı anda bilgisayara kayıt. 720p / 1080p / 1080p60.
+
+### ✂️ Akıllı kurgu
+Sahne değişimlerini algılayıp otomatik bölme, projeyi tek tıkla Shorts'a (9:16) çevirme.
+
 ### 🔤 Metin
 YouTube'a uygun hazır stiller (başlık, altyazı, alt bant, "Abone ol"), 8 yazı tipi, kontur, gölge ve arka plan kutusu.
 
 ### 🎙️ Seslendirme
 - Video oynarken kaydet; büyük kayıt düğmesi, 3-2-1 geri sayım
+- Kayıt biter bitmez sonuç kartı: "çok hızlısın / yavaşsın / tam yerinde", bölüm bölüm hız şeridi ve öneriler
 - Duraklat / devam et, baştan al, geri sarma
 - Canlı ses seviyesi ve dalga formu, mikrofon seçimi, gürültü engelleme
 - Kayıt bitince otomatik olarak doğru yere "Seslendirme" izine eklenir
@@ -47,7 +67,7 @@ Videonun kurgu hızına ve müziğin temposuna (BPM) bakıp hangi hızda okuman 
 - **Anahtar kareler (◆):** sesi istediğin noktada kıs ya da aç (`K`)
 - **Otomatik kısma (ducking):** konuştuğun yerlerde müziği kendiliğinden kısar
 - Klip efektleri: Net ses, Güçlü, Bas, Radyo, Telefon, Megafon, Yankı, Oda, Salon, Gürültü azalt
-- 17 hazır ses efekti (whoosh, boom, riser, ding, pop…); uygulama içinde üretilir, telifsizdir
+- 53 hazır ses efekti (whoosh, boom, riser, gong, alkış, yağmur, 8-bit, komik sesler…); uygulama içinde üretilir, telifsizdir
 - Sessizliklerden otomatik bölme ve sessiz kısımları silme (jump cut)
 - Sesi videodan ayırma, sol/sağ kanal ayırma, basit vokal/müzik ayırma, WAV/MP3 kaydetme
 - Dışa aktarmada YouTube standardına göre ses seviyesi (−14 LUFS, iki geçişli)
@@ -132,6 +152,10 @@ src/
     transitions.ts  Geçişler (önizleme + FFmpeg ortak matematik)
     afx.ts          Ses efektleri
     keyframes.ts    Ses anahtar kareleri ve otomatik kısma
+    vfx.ts          Görsel / lens efektleri (önizleme + FFmpeg)
+    suggest.ts      Öneriler
+    youtube.ts      YouTube bilgileri ve yükleme
+    live.ts         Canlı yayın sahnesi
     recorder.ts     Seslendirme kaydı
     tempo.ts        Tempo koçu (BPM, hece hızı)
     audiotools.ts   Sessizlik, kanal ayırma

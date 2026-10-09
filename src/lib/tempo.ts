@@ -60,20 +60,37 @@ export function analyzeSpeech(env: Float32Array | number[]): SpeechStats {
   const floor = percentile(db, 0.15);
   const top = percentile(db, 0.97);
   const thr = Math.max(floor + 10, top - 28);
+  // Syllable nuclei: local maxima (±40 ms) above the speech threshold that are separated
+  // from the previous nucleus by a valley at least 2 dB deep, and ≥ 80 ms apart.
   let syllables = 0;
   let last = -100;
   let voicedN = 0;
+  let valley = Infinity;
+  let lastPeakDb = -Infinity;
   for (let i = 0; i < n; i++) {
     if (db[i] >= thr) voicedN++;
-    if (db[i] < thr || i - last < 11) continue;
+    valley = Math.min(valley, db[i]);
+    if (db[i] < thr) continue;
     let isMax = true;
-    for (let j = Math.max(0, i - 6); j <= Math.min(n - 1, i + 6); j++) if (db[j] > db[i]) isMax = false;
+    for (let j = Math.max(0, i - 4); j <= Math.min(n - 1, i + 4); j++) if (db[j] > db[i] || (db[j] === db[i] && j < i)) isMax = false;
     if (!isMax) continue;
-    let lo = db[i];
-    for (let j = Math.max(0, i - 14); j < i; j++) lo = Math.min(lo, db[j]);
-    if (db[i] - lo < 3 && last > 0) continue;
+    const deep = Math.min(db[i], lastPeakDb) - valley >= 2 || last < 0;
+    if (i - last < 8) {
+      // too close: keep the stronger of the two
+      if (db[i] > lastPeakDb) {
+        lastPeakDb = db[i];
+        last = i;
+      }
+      continue;
+    }
+    if (!deep) {
+      if (db[i] > lastPeakDb) lastPeakDb = db[i];
+      continue;
+    }
     syllables++;
     last = i;
+    lastPeakDb = db[i];
+    valley = Infinity;
   }
   // pauses between speech
   let pauses = 0;
@@ -225,4 +242,58 @@ export function advice(rate: number, target: [number, number]) {
   if (rate <= target[1]) return { tone: 'good', text: 'Tempo videoya tam uyuyor.' };
   if (rate <= target[1] + 0.4) return { tone: 'ok', text: 'Hedefin biraz üstünde, hafif yavaşlayabilirsin.' };
   return { tone: 'warn', text: `Hızlısın — biraz yavaşla (hedef ${target[0]}–${target[1]} hece/sn).` };
+}
+
+export interface Segment {
+  t0: number;
+  t1: number;
+  rate: number;
+  speaking: boolean;
+}
+
+/** Speaking rate per window (default 4 s) — shows where a take speeds up or slows down. */
+export function segmentRates(env: Float32Array | number[], win = 4): Segment[] {
+  const n = env.length;
+  const step = Math.round(win * 100);
+  const out: Segment[] = [];
+  for (let i = 0; i < n; i += step) {
+    const slice = Array.prototype.slice.call(env, Math.max(0, i - 50), Math.min(n, i + step + 50)) as number[];
+    const s = analyzeSpeech(slice);
+    const speaking = s.voiced > win * 0.3 && s.rate > 0;
+    out.push({ t0: i / 100, t1: Math.min(n, i + step) / 100, rate: speaking ? s.rate : 0, speaking });
+  }
+  return out;
+}
+
+/** Plain-language feedback for a finished take. */
+export function takeReport(env: Float32Array | number[], target: [number, number]) {
+  const s = analyzeSpeech(env);
+  const segs = segmentRates(env);
+  const fast = segs.filter((g) => g.speaking && g.rate > target[1] + 0.4);
+  const slow = segs.filter((g) => g.speaking && g.rate < target[0] - 0.4);
+  const mid = (target[0] + target[1]) / 2;
+  let verdict: { tone: 'good' | 'ok' | 'warn' | 'muted'; title: string };
+  if (!s.rate) verdict = { tone: 'muted', title: 'Konuşma algılanamadı' };
+  else if (s.rate > target[1] + 0.6) verdict = { tone: 'warn', title: 'Çok hızlısın' };
+  else if (s.rate > target[1]) verdict = { tone: 'ok', title: 'Biraz hızlısın' };
+  else if (s.rate < target[0] - 0.6) verdict = { tone: 'warn', title: 'Çok yavaşsın' };
+  else if (s.rate < target[0]) verdict = { tone: 'ok', title: 'Biraz yavaşsın' };
+  else verdict = { tone: 'good', title: 'Tempo tam yerinde' };
+  const tips: string[] = [];
+  if (s.rate && Math.abs(s.rate - mid) > 0.3) {
+    const pct = Math.round(Math.abs(s.rate / mid - 1) * 100);
+    tips.push(s.rate > mid ? `Yaklaşık %${pct} daha yavaş oku; cümle sonlarında kısa nefes al.` : `Yaklaşık %${pct} daha hızlı oku; kelimeler arasındaki boşlukları kısalt.`);
+  }
+  const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  if (fast.length) tips.push(`Hızlandığın yerler: ${fast.slice(0, 4).map((g) => fmt(g.t0)).join(', ')}`);
+  if (slow.length) tips.push(`Yavaşladığın yerler: ${slow.slice(0, 4).map((g) => fmt(g.t0)).join(', ')}`);
+  if (s.longPauses) tips.push(`${s.longPauses} uzun duraklama (1 sn+) var — “Sessizlikleri sil” ile videoyu sıkılaştırabilirsin.`);
+  const spoken = segs.filter((g) => g.speaking);
+  if (spoken.length >= 3) {
+    const rates = spoken.map((g) => g.rate);
+    const sd = Math.sqrt(rates.reduce((a, r) => a + (r - s.rate) ** 2, 0) / rates.length);
+    if (sd > 0.9) tips.push('Hızın kayıt boyunca çok değişiyor; daha dengeli bir tempo dinleyiciyi yormaz.');
+    else if (sd < 0.35 && verdict.tone === 'good') tips.push('Tempon baştan sona dengeli, harika.');
+  }
+  return { stats: s, segs, verdict, tips };
 }

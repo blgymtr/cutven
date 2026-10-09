@@ -1,10 +1,12 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { Mic, Pause, Play, Square, RotateCcw, SkipBack, Undo2, Check, Trash2, Headphones, AlertTriangle } from 'lucide-react';
-import { useStore } from '../store';
+import { useStore, toast } from '../store';
 import { recorder, SAMPLE_RATE } from '../lib/recorder';
 import { formatChapter, formatDuration } from '../lib/util';
 import { Slider, Toggle } from './ui';
-import { Prompter, LivePace } from './Prompter';
+import { Prompter, LivePace, TakeReport } from './Prompter';
+import { usePaceTarget } from './TempoPanel';
+import { PACES, takeReport } from '../lib/tempo';
 
 function fmtRec(t: number) {
   const m = Math.floor(t / 60);
@@ -156,6 +158,19 @@ export default function RecordPanel() {
   const s = rec.settings;
   const live = status === 'recording' || status === 'paused';
 
+  // say right away how the take went
+  const vtt = usePaceTarget();
+  const lastCount = useRef(takes.length);
+  useEffect(() => {
+    if (takes.length > lastCount.current) {
+      const t = takes[takes.length - 1];
+      const tg = PACES[Math.max(0, Math.min(3, vtt?.level ?? 1))].syl;
+      const rep = takeReport(t.peaks, tg);
+      toast(rep.stats.rate ? rep.verdict.title + ' — ' + rep.stats.rate.toFixed(1) + ' hece/sn (hedef ' + tg[0] + '–' + tg[1] + ')' : rep.verdict.title, rep.verdict.tone === 'good' ? 'success' : 'info');
+    }
+    lastCount.current = takes.length;
+  }, [takes.length]);
+
   useEffect(() => {
     recorder.acquire();
     return () => recorder.release();
@@ -235,6 +250,7 @@ export default function RecordPanel() {
       </div>
       <LiveWave active={status === 'recording'} />
       <LivePace />
+      {!live && status !== 'countdown' && takes.length > 0 && <TakeReport take={takes[takes.length - 1]} />}
       <Prompter />
       {!live && status !== 'countdown' && (
         <p className="hint" style={{ textAlign: 'center', margin: '4px 0 0' }}>
@@ -276,6 +292,7 @@ export default function RecordPanel() {
                   {onTimeline && <span className="take-tag">Videoda</span>}
                 </div>
                 <TakeWave peaks={t.peaks} />
+                <TakeReport take={t} compact />
                 <div className="take-actions">
                   <button className="icon-btn sm" title="Videoyla birlikte dinle" disabled={live} onClick={() => recorder.listen(t.id)}>
                     <Headphones size={14} />

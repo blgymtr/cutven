@@ -21,6 +21,7 @@ app.setName('Cutven');
 if (process.env.CUTVEN_FAKE_MIC) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  if (process.env.CUTVEN_FAKE_MIC_FILE) app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.CUTVEN_FAKE_MIC_FILE);
 }
 if (process.env.CUTVEN_USER_DATA) app.setPath('userData', process.env.CUTVEN_USER_DATA);
 if (process.platform === 'win32') app.setAppUserModelId('com.cutven.app');
@@ -547,10 +548,19 @@ function registerIpc() {
     streams.delete(id);
     // MediaRecorder WebM has no duration / cues: remux so seeking and probing work
     const fixed = s.path.replace(/\.webm$/, '.fixed.webm');
-    const r = await runFF(['-y', '-i', s.path, '-c', 'copy', fixed]);
+    let r = await runFF(['-y', '-i', s.path, '-c', 'copy', fixed]);
     if (r.code === 0 && (await exists(fixed))) {
       await fsp.unlink(s.path).catch(() => {});
       await fsp.rename(fixed, s.path);
+      return s.path;
+    }
+    // H.264 cannot live in WebM: such streams go to MKV
+    await fsp.unlink(fixed).catch(() => {});
+    const mkv = s.path.replace(/\.webm$/, '.mkv');
+    r = await runFF(['-y', '-i', s.path, '-c', 'copy', mkv]);
+    if (r.code === 0 && (await exists(mkv))) {
+      await fsp.unlink(s.path).catch(() => {});
+      return mkv;
     }
     return s.path;
   });
@@ -731,6 +741,19 @@ function registerIpc() {
   h('shell:showItem', (p) => shell.showItemInFolder(p));
   h('shell:openPath', (p) => shell.openPath(p));
   h('clipboard:write', (t) => clipboard.writeText(t));
+  require('./youtube.cjs').register(h, (ch, d) => win?.webContents.send(ch, d));
+  require('./live.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), FFMPEG);
+  /** Scene cuts (seconds, source time) via ffmpeg's scene score. */
+  h('media:scenes', async (file, from, to, threshold) => {
+    const args = ['-hide_banner', '-ss', String(from || 0)];
+    if (to) args.push('-t', String(Math.max(0.1, to - (from || 0))));
+    args.push('-i', file, '-an', '-vf', `scale=320:-2,select='gt(scene,${threshold || 0.32})',showinfo`, '-f', 'null', '-');
+    const r = await runFF(args);
+    const out = [];
+    for (const m of r.stderr.matchAll(/pts_time:([\d.]+)/g)) out.push((from || 0) + parseFloat(m[1]));
+    return out;
+  });
+  h('shell:openUrl', (u) => (/^https:\/\/(youtu\.be|www\.youtube\.com|studio\.youtube\.com|console\.cloud\.google\.com)\//.test(u) ? shell.openExternal(u) : false));
   h('app:paths', () => ({ projects: PROJECTS_DIR, version: app.getVersion() }));
   h('app:pendingOpen', () => {
     const f = pendingOpen;

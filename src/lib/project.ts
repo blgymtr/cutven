@@ -91,6 +91,8 @@ function normalize(p: any): Project {
     status: p.status,
     script: p.script,
     thumbDesign: p.thumbDesign,
+    yt: p.yt,
+    lastExport: p.lastExport,
   };
 }
 
