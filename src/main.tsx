@@ -1,0 +1,48 @@
+import { createRoot } from 'react-dom/client';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/inter/800.css';
+import '@fontsource/inter/900.css';
+import '@fontsource/montserrat/400.css';
+import '@fontsource/montserrat/600.css';
+import '@fontsource/montserrat/700.css';
+import '@fontsource/montserrat/800.css';
+import '@fontsource/montserrat/900.css';
+import '@fontsource/montserrat/400-italic.css';
+import '@fontsource/montserrat/800-italic.css';
+import '@fontsource/poppins/400.css';
+import '@fontsource/poppins/600.css';
+import '@fontsource/poppins/700.css';
+import '@fontsource/poppins/800.css';
+import '@fontsource/poppins/900.css';
+import '@fontsource/bebas-neue/400.css';
+import '@fontsource/anton/400.css';
+import '@fontsource/oswald/400.css';
+import '@fontsource/oswald/700.css';
+import '@fontsource/playfair-display/400.css';
+import '@fontsource/playfair-display/700.css';
+import '@fontsource/playfair-display/900.css';
+import '@fontsource/playfair-display/700-italic.css';
+import '@fontsource/permanent-marker/400.css';
+import './styles.css';
+import './features.css';
+import App from './App';
+
+createRoot(document.getElementById('root')!).render(<App />);
+
+// debug / automation hook (used by self-tests)
+import * as store from './store';
+import * as actions from './lib/actions';
+import * as media from './lib/media';
+import * as project from './lib/project';
+import { engine } from './lib/engine';
+import { buildExport } from './lib/exporter';
+import * as audiotools from './lib/audiotools';
+import * as sfx from './lib/sfx';
+import * as introoutro from './lib/introoutro';
+import * as tempo from './lib/tempo';
+import * as thumb from './lib/thumb';
+import * as keyframes from './lib/keyframes';
+(window as any).__cv = { store, actions, media, project, engine, buildExport, audiotools, sfx, introoutro, tempo, thumb, keyframes };
