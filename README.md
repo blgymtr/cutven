@@ -71,7 +71,7 @@ MP4 (H.264 / AAC), 720p – 4K, 24 – 60 fps, üç kalite seviyesi, ilerleme g�
 
 ## Kurulum
 
-[`release/Cutven-Setup-1.0.0.exe`](release/) dosyasını çalıştır ve adımları izle. Uygulama imzasız olduğu için Windows ilk açılışta uyarı gösterebilir: **Ek bilgi → Yine de çalıştır**.
+Kurulum dosyasını aşağıdaki [Geliştirme](#geliştirme) adımlarıyla kendin üretebilirsin (`npm run dist` → `release/Cutven-Setup-1.0.0.exe`). Dosyayı çalıştırıp adımları izle. Uygulama imzasız olduğu için Windows ilk açılışta uyarı gösterebilir: **Ek bilgi → Yine de çalıştır**.
 
 Projeler kendiliğinden `Belgeler/Cutven Projeleri` klasörüne kaydedilir; ses ve ekran kayıtları proje klasöründeki `Cutven Kayıtlar` içinde durur.
 
