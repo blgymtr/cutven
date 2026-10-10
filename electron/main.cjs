@@ -34,6 +34,30 @@ const CACHE_DIR = path.join(app.getPath('userData'), 'cache');
 const TEMP_DIR = path.join(os.tmpdir(), 'cutven-' + process.pid);
 const PROJECTS_DIR = process.env.CUTVEN_PROJECTS_DIR || path.join(app.getPath('documents'), 'Cutven Projeleri');
 const RECENT_FILE = path.join(app.getPath('userData'), 'recent.json');
+/* ---- version backups + crash recovery */
+const VERSIONS_DIR = path.join(app.getPath('userData'), 'versions');
+const SESSION_FILE = path.join(app.getPath('userData'), 'session.json');
+const VERSION_EVERY = Number(process.env.CUTVEN_VERSION_EVERY_MS || 5 * 60 * 1000);
+const VERSION_KEEP = 40;
+const lastVersionAt = new Map();
+// what the previous run left behind: a session file means it did not close cleanly
+let prevSession = null;
+try {
+  prevSession = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+} catch {}
+const versionDir = (p) => path.join(VERSIONS_DIR, crypto.createHash('sha1').update(path.resolve(p).toLowerCase()).digest('hex').slice(0, 16));
+async function snapshotVersion(p, force = false) {
+  const now = Date.now();
+  if (!force && now - (lastVersionAt.get(p) || 0) < VERSION_EVERY) return;
+  if (!(await exists(p))) return;
+  lastVersionAt.set(p, now);
+  const dir = versionDir(p);
+  await fsp.mkdir(dir, { recursive: true });
+  await fsp.writeFile(path.join(dir, 'source.txt'), p, 'utf8');
+  await fsp.copyFile(p, path.join(dir, now + '.cutven'));
+  const files = (await fsp.readdir(dir)).filter((f) => f.endsWith('.cutven')).sort();
+  for (const f of files.slice(0, Math.max(0, files.length - VERSION_KEEP))) await fsp.unlink(path.join(dir, f)).catch(() => {});
+}
 
 for (const d of [CACHE_DIR, TEMP_DIR]) fs.mkdirSync(d, { recursive: true });
 
@@ -411,8 +435,17 @@ function registerIpc() {
     const r = await dialog.showSaveDialog(win, { title: 'Kareyi kaydet', defaultPath: path.join(app.getPath('pictures'), safeName(name) + '.png'), filters: [{ name: 'PNG', extensions: ['png'] }] });
     return r.canceled ? null : r.filePath;
   });
-  h('dialog:pickFile', async (title) => {
-    const r = await dialog.showOpenDialog(win, { title, properties: ['openFile'] });
+  h('file:writeText', async (p, text) => {
+    await fsp.writeFile(p, text, 'utf8');
+    return p;
+  });
+  h('file:readText', async (p) => fsp.readFile(p, 'utf8'));
+  h('dialog:saveText', async (name, ext) => {
+    const r = await dialog.showSaveDialog(win, { title: 'Kaydet', defaultPath: path.join(app.getPath('documents'), safeName(name) + '.' + ext), filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+    return r.canceled ? null : r.filePath;
+  });
+  h('dialog:pickFile', async (title, exts) => {
+    const r = await dialog.showOpenDialog(win, { title, properties: ['openFile'], filters: exts ? [{ name: title, extensions: exts }, { name: 'Tümü', extensions: ['*'] }] : undefined });
     return r.canceled ? null : r.filePaths[0];
   });
 
@@ -438,12 +471,47 @@ function registerIpc() {
     return txt;
   });
   h('project:write', async (p, json) => {
+    await snapshotVersion(p).catch(() => {});
     const tmp = p + '.tmp';
     await fsp.writeFile(tmp, json, 'utf8');
     await fsp.rename(tmp, p);
     return true;
   });
   h('project:remember', (p) => pushRecent(p));
+  h('versions:list', async (p) => {
+    const dir = versionDir(p);
+    if (!(await exists(dir))) return [];
+    const files = (await fsp.readdir(dir)).filter((f) => f.endsWith('.cutven')).sort().reverse();
+    const out = [];
+    for (const f of files) {
+      const full = path.join(dir, f);
+      let info = {};
+      try {
+        const j = JSON.parse(await fsp.readFile(full, 'utf8'));
+        info = { clips: (j.clips || []).length, duration: j.duration || 0, name: j.name };
+      } catch {}
+      out.push({ file: full, at: Number(f.replace('.cutven', '')), size: (await fsp.stat(full)).size, ...info });
+    }
+    return out;
+  });
+  h('versions:snapshot', (p) => snapshotVersion(p, true));
+  h('versions:restore', async (p, file) => {
+    if (!file.startsWith(VERSIONS_DIR)) throw new Error('bad version');
+    await snapshotVersion(p, true);
+    await fsp.copyFile(file, p);
+    return true;
+  });
+  h('session:mark', async (p) => {
+    if (p) await fsp.writeFile(SESSION_FILE, JSON.stringify({ path: p, at: Date.now(), pid: process.pid }), 'utf8');
+    else await fsp.unlink(SESSION_FILE).catch(() => {});
+    return true;
+  });
+  h('session:previous', async () => {
+    const s = prevSession;
+    prevSession = null;
+    if (!s || s.pid === process.pid || !s.path || !(await exists(s.path))) return null;
+    return s;
+  });
   h('project:trash', async (p) => {
     await shell.trashItem(p);
     const list = (await readRecent()).filter((x) => x !== p);
@@ -575,8 +643,8 @@ function registerIpc() {
   });
 
   /* --- import helpers --- */
-  h('dialog:openFolder', async () => {
-    const r = await dialog.showOpenDialog(win, { title: 'Klasör içe aktar', properties: ['openDirectory'] });
+  h('dialog:openFolder', async (title) => {
+    const r = await dialog.showOpenDialog(win, { title: title || 'Klasör içe aktar', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
   h('media:scanFolder', async (dir) => {
@@ -728,6 +796,20 @@ function registerIpc() {
       return { error: 'Ses analizi başarısız' };
     }
   });
+  // which hardware encoders actually work on this machine (cached)
+  let hwCache = null;
+  h('export:hwEncoders', async () => {
+    if (hwCache) return hwCache;
+    const list = await runFF(['-hide_banner', '-encoders']);
+    const names = ['h264_nvenc', 'hevc_nvenc', 'h264_qsv', 'hevc_qsv', 'h264_amf', 'hevc_amf'].filter((n) => list.stdout.toString().includes(n));
+    const ok = [];
+    for (const n of names) {
+      const r = await runFF(['-hide_banner', '-v', 'error', '-f', 'lavfi', '-i', 'color=black:s=256x256:d=0.2', '-c:v', n, '-f', 'null', '-']);
+      if (r.code === 0) ok.push(n);
+    }
+    hwCache = ok;
+    return ok;
+  });
   h('export:cancel', () => {
     exportCancelled = true;
     if (exportProc) exportProc.kill();
@@ -833,6 +915,9 @@ if (!gotLock) {
     createWindow();
   });
   app.on('window-all-closed', () => {
+    try {
+      fs.rmSync(SESSION_FILE, { force: true });
+    } catch {}
     if (exportProc) exportProc.kill();
     fs.rmSync(TEMP_DIR, { recursive: true, force: true });
     app.quit();

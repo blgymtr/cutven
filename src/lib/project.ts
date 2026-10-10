@@ -20,6 +20,7 @@ function defaultName() {
 }
 
 function enterEditor(project: Project, path: string) {
+  window.cv.invoke('session:mark', path);
   recorder.reset();
   engine.reset();
   waveforms.clear();
@@ -93,6 +94,10 @@ function normalize(p: any): Project {
     thumbDesign: p.thumbDesign,
     yt: p.yt,
     lastExport: p.lastExport,
+    captions: p.captions,
+    captionStyle: p.captionStyle,
+    inPoint: p.inPoint,
+    outPoint: p.outPoint,
   };
 }
 
@@ -165,6 +170,7 @@ export async function closeProject() {
   recorder.reset();
   await saveProject(true);
   engine.reset();
+  window.cv.invoke('session:mark', null);
   set({ screen: 'start', project: null, projectPath: null, selection: [], runtime: {}, past: [], future: [] });
 }
 

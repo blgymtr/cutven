@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import RecordPanel from './RecordPanel';
-import { Mic, Plus, Upload, Music, Image as ImageIcon, Film, X, Copy, Bookmark, AlertTriangle, FolderOpen, ClipboardPaste, MonitorUp, Video, Square, Type, Blend, Gauge, Clapperboard, ListOrdered, Sparkles, Lightbulb, SquarePlay as Youtube, Radio } from 'lucide-react';
+import { Mic, Plus, Upload, Music, Image as ImageIcon, Film, X, Copy, Bookmark, AlertTriangle, FolderOpen, ClipboardPaste, MonitorUp, Video, Square, Type, Blend, Gauge, Clapperboard, ListOrdered, Sparkles, Lightbulb, SquarePlay as Youtube, Radio, Captions, SlidersVertical, History, MonitorPlay } from 'lucide-react';
+import CaptionsPanel from './CaptionsPanel';
+import { openSource } from './ProDialogs';
+import { MixerPanel, HistoryPanel } from './MixPanels';
 import TempoPanel from './TempoPanel';
 import { VfxPanel } from './VfxPanel';
 import SuggestPanel from './SuggestPanel';
@@ -62,6 +65,11 @@ function MediaCard({ m, used }: { m: MediaItem; used: boolean }) {
       {rt?.status !== 'missing' && (
         <button className="add" title="Zaman çizelgesine ekle" onClick={() => addMediaToTimeline(m)}>
           <Plus size={15} />
+        </button>
+      )}
+      {rt?.status !== 'missing' && (
+        <button className="srcbtn" title="Kaynak monitöründe aç (giriş/çıkış seçip ekle)" onClick={(e) => (e.stopPropagation(), openSource(m.id, m.duration))}>
+          <MonitorPlay size={13} />
         </button>
       )}
       <button
@@ -272,16 +280,19 @@ const RAIL = [
   { id: 'media', label: 'Medya', icon: Film },
   { id: 'sfx', label: 'Sesler', icon: Music },
   { id: 'text', label: 'Metin', icon: Type },
+  { id: 'captions', label: 'Altyazı', icon: Captions },
   { id: 'vfx', label: 'Efekt', icon: Sparkles },
   { id: 'trans', label: 'Geçiş', icon: Blend },
   { id: 'record', label: 'Kayıt', icon: Mic },
   { id: 'tempo', label: 'Tempo', icon: Gauge },
+  { id: 'mixer', label: 'Mikser', icon: SlidersVertical },
   { id: 'suggest', label: 'Öneri', icon: Lightbulb },
   { id: 'youtube', label: 'YouTube', icon: Youtube },
   { id: 'live', label: 'Canlı', icon: Radio },
   { id: 'intro', label: 'Intro', icon: Clapperboard },
   { id: 'thumb', label: 'Kapak', icon: ImageIcon },
   { id: 'chapters', label: 'Bölüm', icon: ListOrdered },
+  { id: 'history', label: 'Geçmiş', icon: History },
 ] as const;
 
 const TITLES: Record<LeftTab, string> = {
@@ -298,6 +309,9 @@ const TITLES: Record<LeftTab, string> = {
   intro: 'Intro & outro',
   thumb: 'Küçük resim',
   chapters: 'Bölümler',
+  captions: 'Altyazılar',
+  mixer: 'Ses mikseri',
+  history: 'Geçmiş',
 };
 
 export default function MediaPanel() {
@@ -334,6 +348,9 @@ export default function MediaPanel() {
           {tab === 'intro' && <IntroPanel />}
           {tab === 'thumb' && <ThumbPanel />}
           {tab === 'chapters' && <ChaptersTab />}
+          {tab === 'captions' && <CaptionsPanel />}
+          {tab === 'mixer' && <MixerPanel />}
+          {tab === 'history' && <HistoryPanel />}
         </div>
       </div>
     </div>

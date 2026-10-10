@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays, Smartphone } from 'lucide-react';
+import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays, Smartphone, History, FileOutput, Keyboard } from 'lucide-react';
 import { convertToShorts } from '../lib/convert';
 import { set, undo, redo, useStore, edit, toast } from '../store';
+import { exportInterchange } from './ProDialogs';
+import { ExportChip } from './ExportDialog';
 import { closeProject, saveProject, saveProjectAs, renameProject } from '../lib/project';
 import { STATUSES, statusOf, dayLabel } from '../lib/plan';
 import { engine } from '../lib/engine';
@@ -95,6 +97,12 @@ export default function TopBar() {
             { label: 'Kaydet', icon: <Save size={14} />, k: 'Ctrl+S', onClick: () => saveProject(true).then(() => toast('Kaydedildi', 'success')) },
             { label: 'Farklı kaydet…', icon: <FolderInput size={14} />, k: 'Ctrl+Shift+S', onClick: () => saveProjectAs() },
             { label: 'Shorts’a çevir (9:16 kopya)', icon: <Smartphone size={14} />, onClick: () => convertToShorts() },
+            { label: 'Sürüm geçmişi…', icon: <History size={14} />, onClick: () => set({ versionsOpen: true }) },
+            { sep: true },
+            { label: 'Premiere / Resolve için XML', icon: <FileOutput size={14} />, onClick: () => exportInterchange('xml') },
+            { label: 'EDL (CMX3600)', icon: <FileOutput size={14} />, onClick: () => exportInterchange('edl') },
+            { label: 'OpenTimelineIO (.otio)', icon: <FileOutput size={14} />, onClick: () => exportInterchange('otio') },
+            { label: 'Klavye kısayolları', icon: <Keyboard size={14} />, k: '?', onClick: () => set({ shortcutsOpen: true }) },
             { sep: true },
             { label: 'Projeler', icon: <ChevronLeft size={14} />, onClick: () => closeProject() },
           ]);
@@ -104,6 +112,7 @@ export default function TopBar() {
       </button>
       <PlanChip />
       <div className="spacer" />
+      <ExportChip />
       <button className="icon-btn" title="Geri al (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
         <Undo2 size={16} />
       </button>

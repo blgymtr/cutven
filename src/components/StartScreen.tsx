@@ -194,8 +194,10 @@ export default function StartScreen() {
   const [list, setList] = useState<ProjectSummary[] | null>(null);
   const [editing, setEditing] = useState<ProjectSummary | null | 'new'>(null);
   const load = () => window.cv.invoke<ProjectSummary[]>('project:list').then(setList);
+  const [crashed, setCrashed] = useState<{ path: string; at: number } | null>(null);
   useEffect(() => {
     load();
+    window.cv.invoke<{ path: string; at: number } | null>('session:previous').then(setCrashed);
   }, []);
 
   const menu = (e: React.MouseEvent, p: ProjectSummary) => {
@@ -251,6 +253,21 @@ export default function StartScreen() {
               </button>
             </div>
           </div>
+
+          {crashed && (
+            <div className="crash-banner">
+              <div className="grow">
+                <b>Cutven geçen sefer beklenmedik şekilde kapandı.</b>
+                <span>Proje otomatik kaydedildi; kaldığın yerden devam edebilirsin. Bir şey eksikse Dosya › Sürüm geçmişi'nden eski bir yedeğe dönebilirsin.</span>
+              </div>
+              <button className="btn primary sm" onClick={() => openProject(crashed.path)}>
+                Projeyi aç
+              </button>
+              <button className="btn ghost sm" onClick={() => setCrashed(null)}>
+                Kapat
+              </button>
+            </div>
+          )}
 
           {list && <Today list={list} onEdit={(p) => setEditing(p)} onPlan={() => setEditing('new')} />}
 

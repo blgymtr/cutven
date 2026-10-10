@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { X, FolderOpen, Check, Film, Music, Play } from 'lucide-react';
-import { useStore, set, edit, toast } from '../store';
-import { metaOf, uploadToYoutube } from '../lib/youtube';
-import { buildExport, type Loudness } from '../lib/exporter';
-import { thumbCoverPath } from '../lib/thumb';
+import { X, FolderOpen, Check, Film, Music, Play, Minimize2 } from 'lucide-react';
+import { useStore, set, toast } from '../store';
+import type { HwKind, VideoCodec } from '../lib/exporter';
+import { runExport, pickOutput, startUpload, type RunParams } from '../lib/exportRun';
+import { ioRange } from '../lib/proedit';
 import { engine } from '../lib/engine';
 import { formatDuration, projectDuration } from '../lib/util';
 import { Segmented, Toggle } from './ui';
 
-type Phase = 'setup' | 'running' | 'done' | 'error';
-
 const RES = [
+  { id: 480, label: '480p' },
   { id: 720, label: '720p' },
   { id: 1080, label: '1080p' },
   { id: 1440, label: '2K' },
@@ -21,106 +20,128 @@ const QUALITY = [
   { id: 'std', label: 'Standart', crf: 21, preset: 'medium' },
   { id: 'small', label: 'Küçük dosya', crf: 25, preset: 'fast' },
 ];
+const CODECS: { id: VideoCodec; label: string; hint: string }[] = [
+  { id: 'h264', label: 'H.264', hint: 'MP4 — her yerde oynar. YouTube için önerilen.' },
+  { id: 'hevc', label: 'HEVC', hint: 'MP4 (H.265) — aynı kalitede ~%40 daha küçük dosya.' },
+  { id: 'prores', label: 'ProRes', hint: 'MOV (ProRes 422 HQ) — arşiv ve başka programda düzenleme için. Çok büyük dosya.' },
+  { id: 'vp9', label: 'WebM', hint: 'WebM (VP9 + Opus) — web siteleri için.' },
+  { id: 'gif', label: 'GIF', hint: 'Sessiz, döngülü hareketli görsel. Kısa parçalar için.' },
+  { id: 'png', label: 'PNG', hint: 'Her kare ayrı PNG dosyası (sessiz). Bir klasör seçeceksin.' },
+];
+
+interface Preset {
+  id: string;
+  name: string;
+  sub: string;
+  codec: VideoCodec;
+  res: number;
+  fps?: number;
+  q: string;
+  aspect?: number;
+}
+const PRESETS: Preset[] = [
+  { id: 'yt1080', name: 'YouTube', sub: '1080p · H.264', codec: 'h264', res: 1080, q: 'high', aspect: 16 / 9 },
+  { id: 'yt4k', name: 'YouTube 4K', sub: '2160p · H.264', codec: 'h264', res: 2160, q: 'high', aspect: 16 / 9 },
+  { id: 'shorts', name: 'Shorts / TikTok / Reels', sub: '1080×1920 · H.264', codec: 'h264', res: 1080, q: 'high', aspect: 9 / 16 },
+  { id: 'insta', name: 'Instagram gönderi', sub: '1080×1080 / 4:5', codec: 'h264', res: 1080, q: 'std', aspect: 1 },
+  { id: 'archive', name: 'Arşiv', sub: 'ProRes 422 HQ', codec: 'prores', res: 1080, q: 'high' },
+  { id: 'gif', name: 'GIF', sub: '480p · 15 fps', codec: 'gif', res: 480, fps: 15, q: 'std' },
+];
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+const HW_NAME: Record<HwKind, string> = { nvenc: 'NVIDIA (NVENC)', qsv: 'Intel (Quick Sync)', amf: 'AMD (AMF)' };
 
 export default function ExportDialog() {
   const project = useStore((s) => s.project)!;
+  const exp = useStore((s) => s.exp);
   const [format, setFormat] = useState<'mp4' | 'mp3'>('mp4');
   const short = Math.min(project.width, project.height);
   const [res, setRes] = useState(short >= 1080 ? 1080 : 720);
   const [fps, setFps] = useState(project.fps);
   const [quality, setQuality] = useState('high');
+  const [codec, setCodec] = useState<VideoCodec>('h264');
+  const [hwList, setHwList] = useState<string[] | null>(null);
+  const [hw, setHw] = useState<HwKind | null>(null);
   const [normalize, setNormalize] = useState(true);
-  const [phase, setPhase] = useState<Phase>('setup');
-  const [progress, setProgress] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState('');
-  const [outPath, setOutPath] = useState('');
+  const [preset, setPreset] = useState<string | null>('yt1080');
+  const range = ioRange(project);
+  const [useRange, setUseRange] = useState(!!range);
   const [thumb, setThumb] = useState<string | null>(null);
-  const [stage, setStage] = useState('');
-  const dur = projectDuration(project);
+  const dur = useRange && range ? range[1] - range[0] : projectDuration(project);
+  const running = exp?.phase === 'running';
+  // show the last result only if it belongs to this dialog session
+  const [sessionStarted, setSessionStarted] = useState(running);
+  const phase = exp && (sessionStarted || running) ? exp.phase : 'setup';
 
   useEffect(() => {
     if (engine.playing) engine.pause();
     engine.capture(320, 'image/jpeg', 0.8).then(setThumb);
-    return window.cv.on('export:progress', (d) => {
-      setProgress(d.progress);
-      setElapsed(d.elapsed);
-    });
+    window.cv.invoke<string[]>('export:hwEncoders').then(setHwList).catch(() => setHwList([]));
   }, []);
 
-  // output size keeps the project aspect; "res" = shorter side
   const scale = res / short;
   const W = even(project.width * scale);
   const H = even(project.height * scale);
+  const hwFor = (c: VideoCodec) => (['nvenc', 'qsv', 'amf'] as HwKind[]).filter((k) => (c === 'h264' || c === 'hevc') && hwList?.includes(`${c}_${k}`));
+  const hwOpts = hwFor(codec);
+  useEffect(() => {
+    if (hw && !hwOpts.includes(hw)) setHw(null);
+  }, [codec, hwList]);
 
-  const close = () => phase !== 'running' && set({ exportOpen: false });
+  const applyPreset = (pr: Preset) => {
+    setPreset(pr.id);
+    setFormat('mp4');
+    setCodec(pr.codec);
+    setRes(pr.res);
+    setQuality(pr.q);
+    if (pr.fps) setFps(pr.fps);
+    else if (fps === 15) setFps(project.fps);
+  };
+  const ar = project.width / project.height;
+  const pr = PRESETS.find((p) => p.id === preset);
+  const aspectWarn = pr?.aspect && Math.abs(pr.aspect - ar) > 0.02 && !(pr.id === 'insta' && Math.abs(ar - 0.8) < 0.02);
+
+  const close = () => {
+    if (running) set({ exportOpen: false });
+    else set({ exportOpen: false, exp: exp && exp.phase !== 'running' ? null : exp });
+  };
 
   const start = async () => {
-    const out = await window.cv.invoke<string | null>('dialog:saveExport', project.name, format);
+    const q = QUALITY.find((x) => x.id === quality)!;
+    const prm: RunParams = {
+      audioOnly: format === 'mp3',
+      codec,
+      hw,
+      width: W,
+      height: H,
+      fps: codec === 'gif' ? Math.min(fps, 20) : fps,
+      crf: q.crf,
+      preset: q.preset,
+      normalize,
+      range: useRange ? range : null,
+    };
+    const out = await pickOutput(project, prm);
     if (!out) return;
-    setOutPath(out);
-    setPhase('running');
-    setProgress(0);
-    setElapsed(0);
-    try {
-      const q = QUALITY.find((x) => x.id === quality)!;
-      const coverPath = format === 'mp4' ? await thumbCoverPath(project) : undefined;
-      const base = { format, width: W, height: H, fps, crf: q.crf, preset: q.preset, normalize, outPath: out, coverPath };
-      let measured: Loudness | undefined;
-      if (normalize) {
-        setStage('Ses analiz ediliyor…');
-        const mj = await buildExport(project, { ...base, measureOnly: true });
-        const mr = await window.cv.invoke<{ loudness?: Loudness; cancelled?: boolean; silent?: boolean; error?: string }>('export:measure', mj);
-        if (mr.cancelled) return setPhase('setup');
-        measured = mr.loudness;
-      }
-      setStage('');
-      const job = await buildExport(project, { ...base, normalize: normalize && !!measured, measured });
-      const r = await window.cv.invoke<{ ok: boolean; cancelled?: boolean; error?: string }>('export:start', job);
-      if (r.ok) {
-        setProgress(1);
-        setPhase('done');
-        if (format === 'mp4') {
-          edit((d) => void (d.lastExport = out), { record: false });
-          const st = await window.cv.invoke<{ connected: boolean }>('yt:status');
-          if (st.connected && metaOf(project).autoUpload) startUpload(out);
-        }
-      } else if (r.cancelled) setPhase('setup');
-      else {
-        setError(r.error || 'Bilinmeyen hata');
-        setPhase('error');
-      }
-    } catch (e: any) {
-      setError(String(e?.message || e));
-      setPhase('error');
-    }
+    setSessionStarted(true);
+    runExport(project, prm, out);
   };
 
-  const [yt, setYt] = useState<{ busy: boolean; p: number; url?: string; studio?: string; error?: string } | null>(null);
-  useEffect(() => window.cv.on('yt:progress', (d) => setYt((y) => (y ? { ...y, p: d.progress } : y))), []);
-  const startUpload = async (path: string) => {
-    setYt({ busy: true, p: 0 });
-    try {
-      const r = await uploadToYoutube(path);
-      setYt({ busy: false, p: 1, url: r.url, studio: r.studio });
-    } catch (e: any) {
-      setYt({ busy: false, p: 0, error: String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') });
-    }
-  };
+  const progress = exp?.progress || 0;
+  const elapsed = exp?.elapsed || 0;
   const eta = progress > 0.02 ? (elapsed / progress) * (1 - progress) : null;
+  const yt = exp?.yt;
+  const outPath = exp?.out || '';
+  const isPlayable = exp?.kind === 'audio' || (exp && exp.codec !== 'png');
+  const codecLabel = CODECS.find((c) => c.id === codec)!;
 
   return (
     <div className="modal-back" onPointerDown={close}>
-      <div className="modal" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="modal export-modal" onPointerDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{phase === 'done' ? 'Video hazır' : phase === 'running' ? 'Dışa aktarılıyor' : 'Dışa aktar'}</h3>
-          {phase !== 'running' && (
-            <button className="icon-btn" onClick={close}>
-              <X size={16} />
-            </button>
-          )}
+          <button className="icon-btn" onClick={close} title={running ? 'Arka planda sürdür' : 'Kapat'}>
+            {running ? <Minimize2 size={15} /> : <X size={16} />}
+          </button>
         </div>
         <div className="modal-body">
           <div className="export-preview">
@@ -128,13 +149,25 @@ export default function ExportDialog() {
             <div>
               <div style={{ fontWeight: 600, marginBottom: 3 }}>{project.name}</div>
               <div className="muted">
-                {formatDuration(dur)} · {format === 'mp4' ? `${W}×${H} · ${fps} fps · MP4` : 'MP3 · 320 kbps'}
+                {formatDuration(dur)} · {format === 'mp4' ? `${W}×${H} · ${codec === 'gif' ? Math.min(fps, 20) : fps} fps · ${codecLabel.label}${hw ? ' · ' + hw.toUpperCase() : ''}` : 'MP3 · 320 kbps'}
+                {useRange && range ? ' · giriş→çıkış' : ''}
               </div>
             </div>
           </div>
 
           {phase === 'setup' && (
             <>
+              <div className="exp-presets">
+                {PRESETS.map((p) => (
+                  <button key={p.id} className={'exp-preset' + (preset === p.id && format === 'mp4' ? ' on' : '')} onClick={() => applyPreset(p)}>
+                    <b>{p.name}</b>
+                    <span>{p.sub}</span>
+                  </button>
+                ))}
+              </div>
+              {aspectWarn && format === 'mp4' && (
+                <p className="hint warn">Projenin oranı bu platforma uymuyor ({project.width}×{project.height}). Dikey video için Dosya → “Shorts’a çevir”i kullan.</p>
+              )}
               <div className="row">
                 <label>Biçim</label>
                 <Segmented
@@ -149,24 +182,58 @@ export default function ExportDialog() {
               {format === 'mp4' && (
                 <>
                   <div className="row">
+                    <label>Kodek</label>
+                    <Segmented value={codec} onChange={(v) => (setCodec(v), setPreset(null))} options={CODECS.map((c) => ({ value: c.id, label: c.label, title: c.hint }))} />
+                  </div>
+                  <p className="hint" style={{ margin: '2px 0 6px 92px' }}>{codecLabel.hint}</p>
+                  <div className="row">
                     <label>Çözünürlük</label>
-                    <Segmented value={res} onChange={setRes} options={RES.map((r) => ({ value: r.id, label: r.label }))} />
+                    <Segmented value={res} onChange={(v) => (setRes(v), setPreset(null))} options={RES.map((r) => ({ value: r.id, label: r.label }))} />
                   </div>
                   <div className="row">
                     <label>Kare hızı</label>
-                    <Segmented value={fps} onChange={setFps} options={[24, 25, 30, 50, 60].map((v) => ({ value: v, label: String(v) }))} />
+                    <Segmented value={fps} onChange={setFps} options={[15, 24, 25, 30, 50, 60].map((v) => ({ value: v, label: String(v) }))} />
                   </div>
-                  <div className="row">
-                    <label>Kalite</label>
-                    <Segmented value={quality} onChange={setQuality} options={QUALITY.map((q) => ({ value: q.id, label: q.label }))} />
-                  </div>
+                  {codec !== 'png' && codec !== 'prores' && (
+                    <div className="row">
+                      <label>Kalite</label>
+                      <Segmented value={quality} onChange={setQuality} options={QUALITY.map((q) => ({ value: q.id, label: q.label }))} />
+                    </div>
+                  )}
+                  {(codec === 'h264' || codec === 'hevc') && (
+                    <div className="row">
+                      <label title="Ekran kartıyla çok daha hızlı dışa aktarır">Hızlandırma</label>
+                      {hwList == null ? (
+                        <span className="muted">Ekran kartı kontrol ediliyor…</span>
+                      ) : hwOpts.length ? (
+                        <Segmented
+                          value={hw || 'cpu'}
+                          onChange={(v) => setHw(v === 'cpu' ? null : (v as HwKind))}
+                          options={[{ value: 'cpu', label: 'İşlemci' }, ...hwOpts.map((k) => ({ value: k, label: HW_NAME[k] }))]}
+                        />
+                      ) : (
+                        <span className="muted">Desteklenen ekran kartı kodlayıcısı bulunamadı — işlemci kullanılacak.</span>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
-              <div className="row" style={{ marginTop: 10 }}>
-                <label>Ses seviyesi</label>
-                <Toggle on={normalize} onChange={setNormalize} />
-                <span className="hint">YouTube standardına göre normalleştir (−14 LUFS)</span>
-              </div>
+              {range && (
+                <div className="row">
+                  <label>Aralık</label>
+                  <Toggle on={useRange} onChange={setUseRange} />
+                  <span className="hint" style={{ margin: 0 }}>
+                    Sadece giriş → çıkış arası ({formatDuration(range[1] - range[0])})
+                  </span>
+                </div>
+              )}
+              {(format === 'mp3' || (codec !== 'gif' && codec !== 'png')) && (
+                <div className="row" style={{ marginTop: 4 }}>
+                  <label>Ses seviyesi</label>
+                  <Toggle on={normalize} onChange={setNormalize} />
+                  <span className="hint" style={{ margin: 0 }}>YouTube standardına göre eşitle (−14 LUFS)</span>
+                </div>
+              )}
             </>
           )}
 
@@ -177,8 +244,9 @@ export default function ExportDialog() {
                 <i style={{ width: `${progress * 100}%` }} />
               </div>
               <div className="muted">
-                {stage || (eta != null ? `Kalan süre ~${formatDuration(eta)}` : 'Hazırlanıyor…')} · Geçen {formatDuration(elapsed)}
+                {exp?.stage || (eta != null ? `Kalan süre ~${formatDuration(eta)}` : 'Hazırlanıyor…')} · Geçen {formatDuration(elapsed)}
               </div>
+              <p className="hint">Bu pencereyi kapatabilirsin; dışa aktarma arka planda sürer, üst çubukta ilerlemeyi görürsün.</p>
             </div>
           )}
 
@@ -219,13 +287,14 @@ export default function ExportDialog() {
             <div>
               <div style={{ color: 'var(--danger)', fontWeight: 600, marginBottom: 6 }}>Dışa aktarma başarısız oldu</div>
               <pre className="hint" style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto', userSelect: 'text', background: 'var(--panel-2)', padding: 10, borderRadius: 8 }}>
-                {error}
+                {exp?.error}
               </pre>
+              {hw && <p className="hint">Ekran kartı kodlayıcısı sorun çıkarmış olabilir; “İşlemci” ile tekrar dene.</p>}
             </div>
           )}
         </div>
         <div className="modal-foot">
-          {phase === 'setup' && (
+          {(phase === 'setup' || phase === 'cancelled') && (
             <>
               <button className="btn ghost" onClick={close}>
                 Vazgeç
@@ -236,19 +305,26 @@ export default function ExportDialog() {
             </>
           )}
           {phase === 'running' && (
-            <button className="btn" onClick={() => window.cv.invoke('export:cancel')}>
-              İptal
-            </button>
+            <>
+              <button className="btn ghost" onClick={() => set({ exportOpen: false })}>
+                <Minimize2 size={14} /> Arka planda sürdür
+              </button>
+              <button className="btn" onClick={() => window.cv.invoke('export:cancel')}>
+                İptal
+              </button>
+            </>
           )}
           {phase === 'done' && (
             <>
-              <button className="btn ghost" onClick={() => window.cv.invoke('shell:showItem', outPath)}>
+              <button className="btn ghost" onClick={() => window.cv.invoke('shell:showItem', outPath.includes('%05d') ? outPath.replace(/[^\\/]+$/, '') : outPath)}>
                 <FolderOpen size={14} /> Klasörde göster
               </button>
-              <button className="btn" onClick={() => window.cv.invoke('shell:openPath', outPath)}>
-                <Play size={14} /> Oynat
-              </button>
-              {format === 'mp4' && !yt?.busy && !yt?.url && (
+              {isPlayable && (
+                <button className="btn" onClick={() => window.cv.invoke('shell:openPath', outPath)}>
+                  <Play size={14} /> Aç
+                </button>
+              )}
+              {exp?.kind === 'video' && (exp.codec === 'h264' || exp.codec === 'hevc') && !yt?.busy && !yt?.url && (
                 <button
                   className="btn"
                   onClick={async () => {
@@ -273,7 +349,7 @@ export default function ExportDialog() {
               <button className="btn ghost" onClick={close}>
                 Kapat
               </button>
-              <button className="btn primary" onClick={() => setPhase('setup')}>
+              <button className="btn primary" onClick={() => set({ exp: null })}>
                 Tekrar dene
               </button>
             </>
@@ -281,5 +357,19 @@ export default function ExportDialog() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Small progress chip for the top bar while an export runs in the background. */
+export function ExportChip() {
+  const exp = useStore((s) => s.exp);
+  const open = useStore((s) => s.exportOpen);
+  if (!exp || open || (exp.phase !== 'running' && !exp.yt?.busy)) return null;
+  const p = exp.yt?.busy ? exp.yt.p : exp.progress;
+  return (
+    <button className="export-chip" onClick={() => set({ exportOpen: true })} title="Dışa aktarma penceresini aç">
+      <span className="export-chip-bar" style={{ width: `${p * 100}%` }} />
+      <span>{exp.yt?.busy ? 'YouTube’a yükleniyor' : 'Dışa aktarılıyor'} %{Math.floor(p * 100)}</span>
+    </button>
   );
 }

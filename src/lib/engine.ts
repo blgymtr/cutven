@@ -3,14 +3,16 @@ import type { Clip, Project } from '../types';
 import { clamp, clipDur, fadeEnv, mediaUrl, projectDuration } from './util';
 import { drawFrame, mediaOf } from './render';
 import { ensureFont } from './text';
-import { buildAudioChain } from './afx';
+import { buildAudioChain, clipStages, clipFxKey } from './afx';
 import { visStart } from './transitions';
 import { volAt } from './keyframes';
+import { trackMix, LoudnessMeter } from './mix';
 
 interface PlayerEl {
   el: HTMLVideoElement;
   src: string;
   gain: GainNode;
+  pan: StereoPannerNode;
   node: MediaElementAudioSourceNode;
   fx: AudioNode[];
   fxKey: string;
@@ -24,10 +26,14 @@ class Engine {
   private els = new Map<string, PlayerEl>();
   private imgs = new Map<string, HTMLImageElement>();
   private actx: AudioContext | null = null;
+  private master: GainNode | null = null;
+  meter: LoudnessMeter | null = null;
   private t0 = 0;
   private wall0 = 0;
   private dirty = true;
   playing = false;
+  /** shuttle speed (J/K/L): negative plays backwards */
+  rate = 1;
   /** silence timeline audio (e.g. while recording a voiceover through speakers) */
   muted = false;
   /** extra redraw listeners (e.g. preview overlay) */
@@ -59,8 +65,20 @@ class Engine {
   }
 
   private audio() {
-    if (!this.actx) this.actx = new AudioContext({ latencyHint: 'playback' });
+    if (!this.actx) {
+      this.actx = new AudioContext({ latencyHint: 'playback' });
+      this.master = this.actx.createGain();
+      this.master.channelCount = 2;
+      this.master.channelCountMode = 'explicit';
+      this.master.connect(this.actx.destination);
+      this.meter = new LoudnessMeter(this.actx, this.master);
+    }
     return this.actx;
+  }
+  /** master bus (everything the timeline plays goes through here and the loudness meter) */
+  bus() {
+    this.audio();
+    return this.master!;
   }
 
   private srcFor(p: Project, c: Clip): string | null {
@@ -81,6 +99,7 @@ class Engine {
       e.node.disconnect();
       e.fx.forEach((n) => n.disconnect());
       e.gain.disconnect();
+      e.pan.disconnect();
     } catch {}
     this.els.delete(id);
   }
@@ -103,8 +122,10 @@ class Engine {
       const node = actx.createMediaElementSource(el);
       const gain = actx.createGain();
       gain.gain.value = 0;
-      gain.connect(actx.destination);
-      const pe: PlayerEl = { el, src, gain, node, fx: [], fxKey: '#', pending: null, lastUsed: performance.now() };
+      const pan = actx.createStereoPanner();
+      gain.connect(pan);
+      pan.connect(this.bus());
+      const pe: PlayerEl = { el, src, gain, pan, node, fx: [], fxKey: '#', pending: null, lastUsed: performance.now() };
       el.addEventListener('seeked', () => {
         if (pe.pending != null) {
           el.currentTime = pe.pending;
@@ -117,12 +138,12 @@ class Engine {
       e = pe;
     }
     e.lastUsed = performance.now();
-    const key = (c.afx || 'none') + '|' + (c.chan || '');
+    const key = clipFxKey(c);
     if (e.fxKey !== key) {
       // (re)build the effect chain between the media node and the clip gain
       e.node.disconnect();
       e.fx.forEach((n) => n.disconnect());
-      const { output, nodes } = buildAudioChain(this.audio(), e.node, c.afx, c.chan);
+      const { output, nodes } = buildAudioChain(this.audio(), e.node, c.afx, c.chan, clipStages(c));
       output.connect(e.gain);
       e.fx = nodes;
       e.fxKey = key;
@@ -184,8 +205,10 @@ class Engine {
       const el = e.el;
       const local = active ? t - c.start : vs - c.start;
       const target = Math.max(0, c.in + local * c.speed);
-      if (active && this.playing) {
-        if (el.playbackRate !== c.speed) el.playbackRate = c.speed;
+      const scrub = this.playing && (this.rate < 0 || this.rate > 4);
+      if (active && this.playing && !scrub) {
+        const pr = Math.min(16, c.speed * this.rate);
+        if (el.playbackRate !== pr) el.playbackRate = pr;
         if (el.paused) {
           if (Math.abs(el.currentTime - target) > 0.05) el.currentTime = target;
           el.play().catch(() => {});
@@ -194,12 +217,14 @@ class Engine {
         }
       } else {
         if (!el.paused) el.pause();
-        this.seekEl(e, target, 0.5 / fps);
+        this.seekEl(e, target, scrub ? 1.5 / fps : 0.5 / fps);
       }
       const track = p.tracks.find((tr) => tr.id === c.trackId);
       const media = mediaOf(p, c);
-      const audible = active && local >= 0 && this.playing && !this.muted && !c.muted && !track?.muted && !!media?.hasAudio;
-      const g = audible ? volAt(c, local) * fadeEnv(local, dur, c.audioFadeIn, c.audioFadeOut) : 0;
+      const mix = trackMix(p, c);
+      const audible = active && local >= 0 && this.playing && !scrub && !this.muted && !c.muted && !!track && mix.on && !!media?.hasAudio;
+      const g = audible ? volAt(c, local) * fadeEnv(local, dur, c.audioFadeIn, c.audioFadeOut) * mix.vol : 0;
+      if (Math.abs(e.pan.pan.value - mix.pan) > 0.001) e.pan.pan.value = mix.pan;
       if (Math.abs(e.gain.gain.value - g) > 0.001) e.gain.gain.setTargetAtTime(g, this.audio().currentTime, 0.015);
     }
     const now = performance.now();
@@ -240,7 +265,12 @@ class Engine {
     if (!p) return;
     if (this.playing) {
       const dur = projectDuration(p);
-      let t = this.t0 + (performance.now() - this.wall0) / 1000;
+      let t = this.t0 + ((performance.now() - this.wall0) / 1000) * this.rate;
+      if (t <= 0 && this.rate < 0) {
+        set({ time: 0 });
+        this.pause();
+        return;
+      }
       if (t >= dur) {
         t = dur;
         set({ time: t });
@@ -258,29 +288,48 @@ class Engine {
     }
   }
 
-  play() {
+  play(rate = 1) {
     const s = get();
-    if (!s.project || this.playing) return;
+    if (!s.project) return;
+    if (this.playing) {
+      // change shuttle speed without a jump
+      this.t0 = s.time;
+      this.wall0 = performance.now();
+      this.rate = rate;
+      set({ shuttle: rate });
+      return;
+    }
     const dur = projectDuration(s.project);
     if (dur <= 0) return;
     let t = s.time;
-    if (t >= dur - 0.02) t = 0;
+    if (t >= dur - 0.02 && rate > 0) t = 0;
+    this.rate = rate;
     this.audio().resume();
     this.t0 = t;
     this.wall0 = performance.now();
     this.playing = true;
-    set({ playing: true, time: t });
+    set({ playing: true, time: t, shuttle: rate });
   }
 
   pause() {
     if (!this.playing) return;
     this.playing = false;
+    this.rate = 1;
     for (const e of this.els.values()) {
       e.el.pause();
       e.gain.gain.value = 0;
     }
-    set({ playing: false });
+    set({ playing: false, shuttle: 1 });
     this.dirty = true;
+  }
+
+  /** J / L: each press doubles the speed in that direction (1, 2, 4, 8). */
+  shuttle(dir: 1 | -1) {
+    const cur = this.playing ? this.rate : 0;
+    let next: number;
+    if (cur === 0 || Math.sign(cur) !== dir) next = dir;
+    else next = Math.min(8, Math.abs(cur) * 2) * dir;
+    this.play(next);
   }
 
   toggle() {

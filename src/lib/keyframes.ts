@@ -129,7 +129,7 @@ export function deleteKey(id: string, index: number) {
 const isVoiceTrackName = (s: string) => /seslendirme|kayıt|vokal|sol kanal|sağ kanal/i.test(s);
 
 /** Speech regions (timeline seconds) from voiceover tracks and talking video clips, excluding `skip`. */
-function voiceRegions(skip: string): [number, number][] {
+export function voiceRegions(skip: string): [number, number][] {
   const p = get().project!;
   const out: [number, number][] = [];
   for (const c of p.clips) {

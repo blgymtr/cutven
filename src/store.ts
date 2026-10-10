@@ -3,7 +3,7 @@ import { produce, type Draft } from 'immer';
 import type { Clip, MediaRuntime, Project, Track } from './types';
 import { uid } from './lib/util';
 
-type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'width' | 'height' | 'fps' | 'background' | 'name'>;
+export type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'width' | 'height' | 'fps' | 'background' | 'name' | 'captions' | 'captionStyle' | 'inPoint' | 'outPoint'> & { at?: number };
 
 export interface Toast {
   id: string;
@@ -11,7 +11,7 @@ export interface Toast {
   kind?: 'info' | 'error' | 'success';
 }
 
-export type LeftTab = 'media' | 'sfx' | 'text' | 'vfx' | 'trans' | 'record' | 'tempo' | 'suggest' | 'youtube' | 'live' | 'intro' | 'thumb' | 'chapters';
+export type LeftTab = 'media' | 'sfx' | 'text' | 'vfx' | 'trans' | 'record' | 'tempo' | 'suggest' | 'youtube' | 'live' | 'intro' | 'thumb' | 'chapters' | 'captions' | 'mixer' | 'history';
 
 export type RecStatus = 'idle' | 'countdown' | 'recording' | 'paused' | 'saving';
 
@@ -43,6 +43,13 @@ export interface State {
   selection: string[];
   time: number;
   playing: boolean;
+  shuttle: number;
+  exp: import('./lib/exportRun').ExpState | null;
+  tool: 'select' | 'ripple' | 'slip' | 'rate';
+  shortcutsOpen: boolean;
+  versionsOpen: boolean;
+  /** source monitor: media being viewed + its In/Out */
+  source: { mediaId: string; in: number; out: number } | null;
   pps: number;
   snapping: boolean;
   scrollLeft: number;
@@ -71,6 +78,12 @@ export const useStore = create<State>(() => ({
   selection: [],
   time: 0,
   playing: false,
+  shuttle: 1,
+  exp: null,
+  tool: 'select',
+  shortcutsOpen: false,
+  versionsOpen: false,
+  source: null,
   pps: 60,
   snapping: true,
   scrollLeft: 0,
@@ -103,6 +116,11 @@ const snap = (p: Project): Snap => ({
   fps: p.fps,
   background: p.background,
   name: p.name,
+  captions: p.captions,
+  captionStyle: p.captionStyle,
+  inPoint: p.inPoint,
+  outPoint: p.outPoint,
+  at: Date.now(),
 });
 
 export interface EditOpts {
@@ -139,12 +157,17 @@ export function beginGesture() {
   set({ past: [...s.past.slice(-120), snap(s.project)], future: [], lastKey: null });
 }
 
+const strip = (s: Snap) => {
+  const { at: _at, ...rest } = s;
+  return rest;
+};
+
 export function undo() {
   const s = get();
   if (!s.project || !s.past.length) return;
   const prev = s.past[s.past.length - 1];
   set({
-    project: { ...s.project, ...prev },
+    project: { ...s.project, ...strip(prev) },
     past: s.past.slice(0, -1),
     future: [...s.future, snap(s.project)],
     saveState: 'dirty',
@@ -158,7 +181,7 @@ export function redo() {
   if (!s.project || !s.future.length) return;
   const next = s.future[s.future.length - 1];
   set({
-    project: { ...s.project, ...next },
+    project: { ...s.project, ...strip(next) },
     future: s.future.slice(0, -1),
     past: [...s.past, snap(s.project)],
     saveState: 'dirty',

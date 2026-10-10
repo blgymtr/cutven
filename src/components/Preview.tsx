@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Maximize2, RotateCw, Upload, Mic } from 'lucide-react';
 import { useStore, get, set, select, beginGesture, edit } from '../store';
+import { resolveKeys, setProp } from '../lib/vkeys';
 import { engine } from '../lib/engine';
 import { clipBox, hitTest } from '../lib/render';
 import { clipDur, formatTC, projectDuration } from '../lib/util';
@@ -46,10 +47,12 @@ function SelectionOverlay({ k }: { k: number }) {
   const [guides, setGuides] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const sel: Clip | undefined =
+  const raw: Clip | undefined =
     selection.length === 1
       ? project.clips.find((c) => c.id === selection[0] && c.kind !== 'audio' && time >= c.start && time < c.start + clipDur(c))
       : undefined;
+  // keyframed clips show (and edit) their value at the playhead
+  const sel = raw && resolveKeys(raw, time - raw.start);
   const track = sel && project.tracks.find((t) => t.id === sel.trackId);
   const show = sel && !track?.hidden && !track?.locked;
 
@@ -86,8 +89,8 @@ function SelectionOverlay({ k }: { k: number }) {
         edit((d) => {
           const c = d.clips.find((q) => q.id === clip.id);
           if (c) {
-            c.x = Math.round(x);
-            c.y = Math.round(y);
+            setProp(c, 'x', Math.round(x));
+            setProp(c, 'y', Math.round(y));
           }
         }, { record: false });
       } else if (mode === 'scale') {
@@ -96,7 +99,7 @@ function SelectionOverlay({ k }: { k: number }) {
         if (!ev.altKey && Math.abs(s - 1) < 0.03) s = 1;
         edit((dr) => {
           const c = dr.clips.find((q) => q.id === clip.id);
-          if (c) c.scale = Math.round(s * 1000) / 1000;
+          if (c) setProp(c, 'scale', Math.round(s * 1000) / 1000);
         }, { record: false });
       } else {
         let a = (Math.atan2(pt.y - box.cy, pt.x - box.cx) * 180) / Math.PI + 90;
@@ -107,7 +110,7 @@ function SelectionOverlay({ k }: { k: number }) {
         if (a <= -180) a += 360;
         edit((dr) => {
           const c = dr.clips.find((q) => q.id === clip.id);
-          if (c) c.rotation = Math.round(a * 10) / 10;
+          if (c) setProp(c, 'rotation', Math.round(a * 10) / 10);
         }, { record: false });
       }
     };

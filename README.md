@@ -25,7 +25,32 @@ Cutven, bir YouTube videosunu fikir aşamasından yayına kadar tek bir masaüst
 - Tuval üzerinde sürükleyerek konum, ölçek ve döndürme; merkez kılavuzları
 - Hız (0,25× – 4×), opaklık, renk ayarları ve 12 hazır filtre
 - Düz renk klipleri (arka plan, başlık kartı)
-- Geri al / yinele, otomatik kayıt
+- Geri al / yinele, tıklanabilir **geçmiş paneli**, otomatik kayıt
+
+### 🎯 Profesyonel kurgu
+- **Araçlar:** seçim (`V`), dalgalı kırpma (`B`), kaydırma / slip (`Y`), hız esnetme (`T`)
+- **Giriş / çıkış** (`I` / `O`), kaldır (`;`) ve çıkar (`'`): bir aralığı boşluk bırakarak ya da boşluğu kapatarak sil
+- **Q / W:** klibin başını ya da sonunu imlece kadar kırp, arkası kendiliğinden kayar
+- **Ctrl+K:** tüm izleri imleçten kes
+- **Kaynak monitörü ve üç noktalı kurgu:** medyada giriş-çıkışı seç, `,` ile araya ekle (insert) ya da `.` ile üzerine yaz (overwrite)
+- **J / K / L:** geri sar · durdur · ileri sar (tekrar bastıkça 2×, 4×, 8×)
+- Renkli ve notlu işaretçiler (çift tık), `?` ile kısayol penceresi
+
+### 🎨 Renk (Lumetri)
+- **Temel düzeltme:** pozlama, vurgular, gölgeler, beyazlar, siyahlar, renk tonu, canlılık
+- **Eğriler:** ana, kırmızı, yeşil, mavi; nokta ekle/sürükle
+- **Renk tekerlekleri:** gölgeler, orta tonlar, vurgular
+- **HSL ikincil:** sadece bir rengi (ten, gökyüzü, yeşillik) değiştir, maskeyi göster
+- **Yaratıcı görünümler:** Teal & Orange, Sıcak film, Bleach bypass, Soğuk mavi, Mat, Noir, Cyberpunk, Altın saat
+- **LUT yükleme (.cube)** ve güç ayarı
+- **Skoplar:** dalga formu, vektörskop (ten çizgisiyle), histogram
+- Tüm ayarlar tek bir 3D LUT'a dönüştürülür: önizleme ekran kartında (WebGL2), dışa aktarma FFmpeg `lut3d` ile — ikisi birebir aynı görünür
+
+### 🧩 Anahtar kareler ve birleştirme
+- **Görüntü anahtar kareleri (◆):** konum, ölçek, döndürme, opaklık; doğrusal, yumuşak, yavaş başla/bitir ve bekle geçişleri; ◀ ▶ ile kareler arası gezinme
+- **Karışım modları:** çarp, ekran, bindirme, yumuşak/sert ışık, koyulaştır, açıklaştır, renk soldurma/yakma, ekle, fark, dışlama
+- **Kırpma:** dört kenardan yüzde ile
+- **Yeşil ekran (chroma key):** yeşil/mavi ya da önizlemeden renk seç, tolerans, yumuşatma, taşma giderme
 
 ### ✨ Geçişler
 Solma, Çözülme, Siyaha, Beyaz flaş, dört yöne kaydırma, Yakınlaş, Döndür ve Bulanık. Klibin başına ya da sonuna sürüklemen yeterli.
@@ -52,6 +77,13 @@ Sahne değişimlerini algılayıp otomatik bölme, projeyi tek tıkla Shorts'a (
 ### 🔤 Metin
 YouTube'a uygun hazır stiller (başlık, altyazı, alt bant, "Abone ol"), 8 yazı tipi, kontur, gölge ve arka plan kutusu.
 
+### 💬 Altyazılar
+- Ayrı altyazı izi; satırları zamanla birlikte düzenle, imleçten böl
+- **SRT / VTT** içe ve dışa aktarma
+- **Senaryodan otomatik:** senaryodaki cümleleri konuşmanın olduğu yerlere kendiliğinden yerleştirir
+- Stil: Klasik, Shorts, Sarı, Sinema hazırları; yazı tipi, boyut, konum, kutu, kontur
+- Videoya göm ya da dışa aktarırken yanına `.srt` koy
+
 ### 🎙️ Seslendirme
 - Video oynarken kaydet; büyük kayıt düğmesi, 3-2-1 geri sayım
 - Kayıt biter bitmez sonuç kartı: "çok hızlısın / yavaşsın / tam yerinde", bölüm bölüm hız şeridi ve öneriler
@@ -70,6 +102,10 @@ Videonun kurgu hızına ve müziğin temposuna (BPM) bakıp hangi hızda okuman 
 - 53 hazır ses efekti (whoosh, boom, riser, gong, alkış, yağmur, 8-bit, komik sesler…); uygulama içinde üretilir, telifsizdir
 - Sessizliklerden otomatik bölme ve sessiz kısımları silme (jump cut)
 - Sesi videodan ayırma, sol/sağ kanal ayırma, basit vokal/müzik ayırma, WAV/MP3 kaydetme
+- **Ekolayzer:** alçak kesme, bas, orta (ayarlanabilir frekans), tiz
+- **Uğultu giderme** (50 / 60 Hz ve harmonikleri) ve **limiter**
+- **Ses mikseri:** iz başına ses, pan, sessiz (M) ve solo (S)
+- **Loudness ölçer:** anlık, kısa süreli ve toplam LUFS, tepe seviyesi; YouTube hedefine (−14 LUFS) göre yorum
 - Dışa aktarmada YouTube standardına göre ses seviyesi (−14 LUFS, iki geçişli)
 
 ### 🖼️ Küçük resim (thumbnail)
@@ -87,7 +123,20 @@ Desteklenen biçimler: MP4, MOV, MKV, WEBM, AVI, GIF · MP3, WAV, M4A, FLAC, OGG
 Tarayıcının açamadığı videolar için önizleme kopyası otomatik hazırlanır.
 
 ### 📤 Dışa aktarma
-MP4 (H.264 / AAC), 720p – 4K, 24 – 60 fps, üç kalite seviyesi, ilerleme göstergesi ve iptal. Sadece ses (MP3) de mümkün. Bölüm işaretçilerinden YouTube açıklamasına yapıştırmaya hazır bölüm listesi.
+- **Kodekler:** H.264, HEVC (H.265), ProRes 422 HQ, WebM (VP9), GIF, PNG kare dizisi; sadece ses (MP3)
+- **Ekran kartıyla hızlandırma:** NVIDIA NVENC, Intel Quick Sync, AMD AMF (bilgisayarında çalışanlar otomatik bulunur)
+- **Hazır ayarlar:** YouTube 1080p / 4K, Shorts · TikTok · Reels, Instagram, Arşiv, GIF
+- 480p – 4K, 15 – 60 fps, üç kalite seviyesi
+- Sadece **giriş → çıkış** aralığını dışa aktarma
+- **Arka planda dışa aktarma:** pencereyi kapat, çalışmaya devam et; ilerleme üst çubukta
+- Bölüm işaretçilerinden YouTube açıklamasına yapıştırmaya hazır bölüm listesi
+
+### 🔁 Başka programlarla çalışma
+Dosya menüsünden zaman çizelgesini **Premiere Pro / DaVinci Resolve için XML** (FCP7 XML), **EDL (CMX3600)** ya da **OpenTimelineIO (.otio)** olarak kaydet. Kesimler, hız, ses/opaklık seviyeleri ve işaretçiler aktarılır.
+
+### 🛟 Güvenlik ağı
+- Her 5 dakikada otomatik **sürüm yedeği** (son 40 sürüm); Dosya › Sürüm geçmişi'nden tek tıkla geri dön
+- **Çökme kurtarma:** Cutven beklenmedik kapanırsa açılışta son projeyi geri açmayı önerir
 
 ## Kurulum
 
@@ -111,6 +160,14 @@ Projeler kendiliğinden `Belgeler/Cutven Projeleri` klasörüne kaydedilir; ses 
 | `Ctrl+C` · `Ctrl+V` · `Ctrl+D` | Kopyala · Yapıştır · Çoğalt |
 | `Ctrl+Z` · `Ctrl+Y` | Geri al · Yinele |
 | `Ctrl+S` · `Ctrl+E` · `Ctrl+I` | Kaydet · Dışa aktar · İçe aktar |
+| `J` · `K` · `L` | Geri sar · Durdur · İleri sar |
+| `I` · `O` · `X` | Giriş · Çıkış · Klibin etrafını işaretle |
+| `;` · `'` | Kaldır (lift) · Çıkar (extract) |
+| `Q` · `W` | Başı / sonu imlece kadar kırp (dalgalı) |
+| `Ctrl+K` | Tüm izleri imleçten kes |
+| `,` · `.` | Kaynaktan ekle · Üzerine yaz |
+| `V` · `B` · `Y` · `T` | Seçim · Dalgalı kırpma · Slip · Hız esnetme |
+| `?` | Tüm kısayollar |
 
 ## Geliştirme
 
@@ -152,6 +209,14 @@ src/
     transitions.ts  Geçişler (önizleme + FFmpeg ortak matematik)
     afx.ts          Ses efektleri
     keyframes.ts    Ses anahtar kareleri ve otomatik kısma
+    vkeys.ts        Görüntü anahtar kareleri (önizleme + FFmpeg ifadeleri)
+    lumetri.ts      Renk düzeltme → 3D LUT (lutgl.ts: WebGL2 önizleme)
+    keygl.ts        Yeşil ekran (önizleme, FFmpeg chromakey ile aynı formül)
+    captions.ts     Altyazılar (SRT/VTT, otomatik zamanlama, gömme)
+    proedit.ts      Giriş/çıkış, lift/extract, üç noktalı kurgu
+    mix.ts          İz mikseri ve loudness ölçer
+    interchange.ts  FCP7 XML, EDL, OpenTimelineIO
+    exportRun.ts    Arka planda dışa aktarma
     vfx.ts          Görsel / lens efektleri (önizleme + FFmpeg)
     suggest.ts      Öneriler
     youtube.ts      YouTube bilgileri ve yükleme

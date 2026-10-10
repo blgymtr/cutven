@@ -18,6 +18,8 @@ import ExportDialog from './components/ExportDialog';
 import ThumbDialog from './components/ThumbDialog';
 import CaptureDialog from './components/CaptureDialog';
 import { Boundary, ConfirmHost, MenuHost } from './components/ui';
+import { ShortcutsDialog, SourceMonitor, VersionsDialog } from './components/ProDialogs';
+import { markIn, markOut, clearInOut, markSelection, lift, extract, rippleTrim, addEditAll, placeSource } from './lib/proedit';
 
 function Toasts() {
   const toasts = useStore((s) => s.toasts);
@@ -39,7 +41,7 @@ function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = get();
-      if (s.screen !== 'editor' || !s.project || s.exportOpen || s.thumbOpen || s.captureOpen) return;
+      if (s.screen !== 'editor' || !s.project || s.exportOpen || s.thumbOpen || s.captureOpen || s.source || s.shortcutsOpen || s.versionsOpen) return;
       const tgt = e.target as HTMLElement;
       const typing = tgt && (tgt.tagName === 'TEXTAREA' || (tgt.tagName === 'INPUT' && (tgt as HTMLInputElement).type !== 'range') || tgt.isContentEditable);
       const ctrl = e.ctrlKey || e.metaKey;
@@ -80,7 +82,32 @@ function useShortcuts() {
         e.preventDefault();
         select(s.project.clips.map((c) => c.id));
       } else if (ctrl && k === 'b') splitAt();
-      else if (ctrl) return;
+      else if (ctrl && k === 'k') {
+        e.preventDefault();
+        addEditAll();
+      } else if (ctrl && e.shiftKey && k === 'x') {
+        e.preventDefault();
+        clearInOut();
+      } else if (ctrl) return;
+      else if (k === 'j') engine.shuttle(-1);
+      else if (k === 'l') engine.shuttle(1);
+      else if (k === 'k' && engine.playing) engine.pause();
+      else if (k === 'i') markIn();
+      else if (k === 'o') markOut();
+      else if (k === 'x') markSelection();
+      else if (k === ';') lift();
+      else if (k === "'") extract();
+      else if (k === 'q') rippleTrim('start');
+      else if (k === 'w') rippleTrim('end');
+      else if (k === 'v') set({ tool: 'select' });
+      else if (k === 'b') set({ tool: 'ripple' });
+      else if (k === 'y') set({ tool: 'slip' });
+      else if (k === 't') set({ tool: 'rate' });
+      else if (k === '?' || (e.shiftKey && e.code === 'Slash')) set({ shortcutsOpen: true });
+      else if ((k === ',' || k === '.') && s.source) {
+        const m = s.project.media.find((x) => x.id === s.source!.mediaId);
+        if (m) placeSource(m, s.source, k === ',' ? 'insert' : 'overwrite');
+      }
       else if (e.code === 'Space') {
         e.preventDefault();
         const rs = s.rec.status;
@@ -223,6 +250,9 @@ function Editor() {
       {exportOpen && <ExportDialog />}
       {thumbOpen && <ThumbDialog />}
       {captureOpen && <CaptureDialog />}
+      <ShortcutsDialog />
+      <SourceMonitor />
+      <VersionsDialog />
       {fileOver && <div className="file-drop">Bırak — medyaya eklensin (zaman çizelgesine bırakırsan oraya eklenir)</div>}
     </div>
   );

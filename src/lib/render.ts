@@ -4,6 +4,47 @@ import { measureText, drawText } from './text';
 import { colorFilterCss } from './color';
 import { transState, visStart, trDurations } from './transitions';
 import { vfxMotion, vfxPixels, hasPixelVfx, blurBg } from './vfx';
+import { resolveKeys } from './vkeys';
+import { gradeActive, bakeLut } from './lumetri';
+import { applyLut } from './lutgl';
+import { chromaKey } from './keygl';
+import { drawCaption } from './captions';
+
+/** Clip needs the per-clip offscreen pipeline (effects, grade, key, crop). */
+export const needsPipeline = (c: Clip) =>
+  (!!c.vfx?.length && hasPixelVfx(c)) || gradeActive(c.grade) || !!c.ckey?.on || hasCrop(c);
+export const hasCrop = (c: Clip) => !!c.crop && (c.crop.l > 0 || c.crop.r > 0 || c.crop.t > 0 || c.crop.b > 0);
+const COMPOSITE: Record<string, GlobalCompositeOperation> = { add: 'lighter' };
+
+const scratch = new Map<string, HTMLCanvasElement>();
+function copyTo(name: string, src: HTMLCanvasElement) {
+  let cv = scratch.get(name);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    scratch.set(name, cv);
+  }
+  if (cv.width !== src.width || cv.height !== src.height) {
+    cv.width = src.width;
+    cv.height = src.height;
+  }
+  const g = cv.getContext('2d')!;
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.drawImage(src, 0, 0);
+  return cv;
+}
+function filtered(name: string, src: HTMLCanvasElement, f: string) {
+  let cv = scratch.get(name);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    scratch.set(name, cv);
+  }
+  cv.width = src.width;
+  cv.height = src.height;
+  const g = cv.getContext('2d')!;
+  g.filter = f;
+  g.drawImage(src, 0, 0);
+  return cv;
+}
 
 let contentCv: HTMLCanvasElement | null = null;
 function contentCanvas(w: number, h: number) {
@@ -82,7 +123,8 @@ export function drawFrame(
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.imageSmoothingQuality = 'high';
   const fps = p.fps || 30;
-  for (const c of activeVisuals(p, t)) {
+  for (const c0 of activeVisuals(p, t)) {
+    const c = resolveKeys(c0, t - c0.start);
     const tr = transState(c, t, p.width, p.height);
     const T = t - visStart(c);
     const L = trDurations(c).L;
@@ -112,7 +154,8 @@ export function drawFrame(
       const rot = box.rot + tr.rot + (mo?.rot || 0);
       if (rot) ctx.rotate((rot * Math.PI) / 180);
       ctx.globalAlpha = a;
-      const pixel = !!c.vfx?.length && hasPixelVfx(c);
+      const pixel = needsPipeline(c);
+      if (c.blend && c.blend !== 'normal') ctx.globalCompositeOperation = COMPOSITE[c.blend] || (c.blend as GlobalCompositeOperation);
       const filters: string[] = [];
       const cf = !pixel && (c.kind === 'video' || c.kind === 'image') ? colorFilterCss(c.color) : 'none';
       if (cf !== 'none') filters.push(cf);
@@ -144,12 +187,40 @@ export function drawFrame(
           g.fillRect(0, 0, cw, ch);
         } else {
           const src = source(c);
-          const f = colorFilterCss(c.color);
+          const graded = gradeActive(c.grade);
+          const f = graded || c.ckey?.on ? 'none' : colorFilterCss(c.color);
           if (f !== 'none') g.filter = f;
           if (src) g.drawImage(src, 0, 0, cw, ch);
           g.filter = 'none';
         }
-        const out = vfxPixels(c, content, T, fps);
+        let stage: HTMLCanvasElement = content;
+        // keying works on the camera colours, before any grading
+        if (c.ckey?.on && (c.kind === 'video' || c.kind === 'image')) {
+          stage = copyTo('key', chromaKey(stage, c.ckey.color, c.ckey.similarity, c.ckey.smooth, c.ckey.spill));
+          if (!gradeActive(c.grade)) {
+            const f = colorFilterCss(c.color);
+            if (f !== 'none') stage = filtered('keycol', stage, f);
+          }
+        }
+        if (gradeActive(c.grade) && (c.kind === 'video' || c.kind === 'image')) {
+          const lut = bakeLut(c.color, c.grade!);
+          stage = copyTo('grade', applyLut(stage, lut.key, lut.data));
+        }
+        if (hasCrop(c)) {
+          const cr = c.crop!;
+          const o = stage === content ? copyTo('crop', stage) : stage;
+          const g2 = o.getContext('2d')!;
+          const L = Math.round((cr.l / 100) * cw);
+          const R = Math.round((cr.r / 100) * cw);
+          const Tt = Math.round((cr.t / 100) * ch);
+          const B = Math.round((cr.b / 100) * ch);
+          g2.clearRect(0, 0, L, ch);
+          g2.clearRect(cw - R, 0, R, ch);
+          g2.clearRect(0, 0, cw, Tt);
+          g2.clearRect(0, ch - B, cw, B);
+          stage = o;
+        }
+        const out = c.vfx?.length && hasPixelVfx(c) ? vfxPixels(c, stage, T, fps) : stage;
         ctx.drawImage(out, -box.w / 2 - pad, -box.h / 2 - pad, box.w + pad * 2, box.h + pad * 2);
       } else if (c.kind === 'text' && c.text) {
         ctx.scale(c.scale, c.scale);
@@ -177,6 +248,7 @@ export function drawFrame(
       }
     }
   }
+  drawCaption(ctx, p, t, k);
   ctx.restore();
 }
 
@@ -184,7 +256,7 @@ export function drawFrame(
 export function hitTest(p: Project, t: number, x: number, y: number): Clip | null {
   const list = activeVisuals(p, t);
   for (let i = list.length - 1; i >= 0; i--) {
-    const c = list[i];
+    const c = resolveKeys(list[i], t - list[i].start);
     const tr = p.tracks.find((t) => t.id === c.trackId);
     if (tr?.locked) continue;
     const b = clipBox(p, c);

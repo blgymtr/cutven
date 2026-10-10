@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  MousePointer2, ArrowLeftRight, MoveHorizontal, Keyboard,
   Scissors, Trash2, Copy, Magnet, ZoomIn, ZoomOut, Maximize2, Bookmark, Eye, EyeOff, Volume2, VolumeX, Lock, Unlock,
   Film, Music, Type, Image as ImageIcon, X, AudioLines, ClipboardPaste, CopyPlus, Gauge, Square, Diamond,
 } from 'lucide-react';
@@ -49,6 +50,10 @@ function Ruler({ width, onScrub }: { width: number; onScrub: (e: React.PointerEv
   const viewW = useStore((s) => s.viewW);
   const fps = useStore((s) => s.project?.fps || 30);
   const markers = useStore((s) => s.project?.markers);
+  const inPt = useStore((s) => s.project?.inPoint);
+  const outPt = useStore((s) => s.project?.outPoint);
+  const total = useStore((s) => (s.project ? projectDuration(s.project) : 0));
+  const [editing, setEditing] = useState<string | null>(null);
   const w = Math.max(0, viewW - HEAD_W);
 
   useEffect(() => {
@@ -83,12 +88,23 @@ function Ruler({ width, onScrub }: { width: number; onScrub: (e: React.PointerEv
   return (
     <div className="tl-ruler" style={{ width }} onPointerDown={onScrub}>
       <canvas ref={ref} style={{ left: scrollLeft, width: w }} />
+      {(inPt != null || outPt != null) && (
+        <div className="io-range" style={{ left: (inPt ?? 0) * pps, width: Math.max(1, ((outPt ?? total) - (inPt ?? 0)) * pps) }} title="Giriş → çıkış (I / O). Ctrl+Shift+X ile temizle">
+          {inPt != null && <b className="io-in" />}
+          {outPt != null && <b className="io-out" />}
+        </div>
+      )}
+      {editing && markers?.some((m) => m.id === editing) && <MarkerEditor id={editing} onClose={() => setEditing(null)} />}
       {markers?.map((m) => (
         <div
           key={m.id}
           className="marker"
-          style={{ left: m.time * pps }}
-          title={`${formatChapter(m.time)} ${m.label}`}
+          style={{ left: m.time * pps, ['--mk' as any]: m.color || '#ffcf4a' }}
+          title={`${formatChapter(m.time)} ${m.label}${m.note ? ' — ' + m.note : ''}`}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setEditing(m.id);
+          }}
           onPointerDown={(e) => {
             e.stopPropagation();
             engine.seek(m.time);
@@ -96,6 +112,7 @@ function Ruler({ width, onScrub }: { width: number; onScrub: (e: React.PointerEv
           onContextMenu={(e) => {
             e.preventDefault();
             showMenu(e.clientX, e.clientY, [
+              { label: 'Düzenle (renk, not)', icon: <Bookmark size={14} />, onClick: () => setEditing(m.id) },
               { label: 'Bölümlerde düzenle', icon: <Bookmark size={14} />, onClick: () => set({ leftTab: 'chapters' }) },
               { label: 'İşaretçiyi sil', icon: <Trash2 size={14} />, danger: true, onClick: () => edit((d) => void (d.markers = d.markers.filter((x) => x.id !== m.id))) },
             ]);
@@ -105,6 +122,37 @@ function Ruler({ width, onScrub }: { width: number; onScrub: (e: React.PointerEv
           {pps * 10 > 60 && <span>{m.label}</span>}
         </div>
       ))}
+    </div>
+  );
+}
+
+const MARKER_COLORS = ['#ffcf4a', '#ff6a3d', '#ff4d5e', '#c56cf0', '#5a8cff', '#3ddc97', '#ececf0'];
+
+function MarkerEditor({ id, onClose }: { id: string; onClose: () => void }) {
+  const m = useStore((s) => s.project?.markers.find((x) => x.id === id))!;
+  const pps = useStore((s) => s.pps);
+  const set1 = (patch: Partial<typeof m>, key: string) =>
+    edit((d) => {
+      const x = d.markers.find((q) => q.id === id);
+      if (x) Object.assign(x, patch);
+    }, { key: 'mk-' + key + id });
+  useEffect(() => {
+    const close = (e: PointerEvent) => !(e.target as HTMLElement).closest('.marker-editor') && onClose();
+    const t = setTimeout(() => window.addEventListener('pointerdown', close));
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pointerdown', close);
+    };
+  }, [onClose]);
+  return (
+    <div className="marker-editor" style={{ left: m.time * pps }} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <input className="field" autoFocus value={m.label} onChange={(e) => set1({ label: e.target.value }, 'l')} onKeyDown={(e) => e.key === 'Enter' && onClose()} />
+      <textarea className="field" rows={2} placeholder="Not (ör. buraya B-roll koy)" value={m.note || ''} onChange={(e) => set1({ note: e.target.value || undefined }, 'n')} />
+      <div className="chips">
+        {MARKER_COLORS.map((c) => (
+          <button key={c} className={'chip swatch-chip' + ((m.color || '#ffcf4a') === c ? ' on' : '')} style={{ background: c }} onClick={() => set1({ color: c }, 'c')} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -565,6 +613,10 @@ export default function Timeline() {
       let started = false;
       let newZone = false;
       let targetTrack = c.trackId;
+      const tool = get().tool;
+      const sourced = c.kind === 'video' || c.kind === 'audio';
+      // clips after this one on the same track (for ripple trims)
+      const after = p0.clips.filter((x) => x.trackId === o.trackId && x.id !== o.id && x.start >= clipEnd(o) - 1e-4).map((x) => ({ id: x.id, start: x.start }));
 
       const move = (ev: PointerEvent) => {
         const dx = ev.clientX - x0;
@@ -577,7 +629,72 @@ export default function Timeline() {
         const pps = get().pps;
         const dt = dx / pps;
         let snapHit: number | null = null;
-        if (mode === 'move') {
+        if (tool === 'slip' && mode === 'move' && sourced && media) {
+          // slip: same place and length on the timeline, different part of the source
+          const span = o.out - o.in;
+          const ni = clamp(o.in - dt * o.speed, 0, Math.max(0, media.duration - span));
+          edit((d) => {
+            const cl = d.clips.find((x) => x.id === c.id)!;
+            cl.in = ni;
+            cl.out = ni + span;
+          }, { record: false });
+          engine.seek(o.start + 0.0001);
+        } else if (tool === 'rate' && mode !== 'move' && sourced) {
+          // rate stretch: keep the source range, change speed so the clip fits the new length
+          const span = o.out - o.in;
+          const end0 = clipEnd(o);
+          if (mode === 'r') {
+            const s = snapTo(end0 + dt, pts, ev.altKey);
+            snapHit = s.hit;
+            let lim = Infinity;
+            for (const x of get().project!.clips) if (x.trackId === o.trackId && x.id !== o.id && x.start >= end0 - 1e-4) lim = Math.min(lim, x.start);
+            const len = clamp(Math.min(s.t, lim) - o.start, span / 16, span / 0.1);
+            edit((d) => void (d.clips.find((x) => x.id === c.id)!.speed = Math.round((span / len) * 1000) / 1000), { record: false });
+          } else {
+            const s = snapTo(o.start + dt, pts, ev.altKey);
+            snapHit = s.hit;
+            let lim = 0;
+            for (const x of get().project!.clips) if (x.trackId === o.trackId && x.id !== o.id && clipEnd(x) <= o.start + 1e-4) lim = Math.max(lim, clipEnd(x));
+            const len = clamp(end0 - Math.max(s.t, lim), span / 16, span / 0.1);
+            const sp = Math.round((span / len) * 1000) / 1000;
+            edit((d) => {
+              const cl = d.clips.find((x) => x.id === c.id)!;
+              cl.speed = sp;
+              cl.start = Math.max(0, end0 - span / sp);
+            }, { record: false });
+          }
+        } else if (tool === 'ripple' && mode !== 'move') {
+          // ripple trim: the clip keeps its start, everything after it on the track follows
+          const end0 = clipEnd(o);
+          let newDur: number;
+          let ni = o.in;
+          let no = o.out;
+          if (mode === 'r') {
+            const s = snapTo(end0 + dt, pts, ev.altKey);
+            snapHit = s.hit;
+            let ne = Math.max(o.start + fr, s.t);
+            if (sourced && media) ne = Math.min(ne, o.start + (media.duration - o.in) / o.speed);
+            newDur = ne - o.start;
+            no = sourced ? o.in + newDur * o.speed : newDur;
+          } else {
+            const maxCut = clipDur(o) - fr;
+            let cut = clamp(dt, sourced ? -o.in / o.speed : -Infinity, maxCut);
+            if (!sourced) cut = Math.min(cut, maxCut);
+            newDur = clipDur(o) - cut;
+            if (sourced) ni = o.in + cut * o.speed;
+            else no = o.out - cut;
+          }
+          const delta = o.start + newDur - end0;
+          edit((d) => {
+            const cl = d.clips.find((x) => x.id === c.id)!;
+            cl.in = ni;
+            cl.out = no;
+            for (const a of after) {
+              const x = d.clips.find((q) => q.id === a.id);
+              if (x) x.start = Math.max(0, a.start + delta);
+            }
+          }, { record: false });
+        } else if (mode === 'move') {
           let ns = Math.max(0, o.start + dt);
           const len = clipDur(o);
           const a = snapTo(ns, pts, ev.altKey);
@@ -735,11 +852,26 @@ export default function Timeline() {
   const hasClips = project.clips.length > 0;
   const selAudio = selection.length === 1 ? project.clips.find((c) => c.id === selection[0] && (c.kind === 'audio' || c.kind === 'video')) : undefined;
   const nowT = useStore((s) => s.time);
+  const tool = useStore((s) => s.tool);
+  const shuttle = useStore((s) => s.shuttle);
   const selKey = !!selAudio && !!selAudio.vkeys?.length && (selAudio.vkeys || []).some((k) => Math.abs(localAt(selAudio, k.s) + selAudio.start - nowT) < 1 / 30 + 1e-3);
 
   return (
     <div className="timeline">
       <div className="tl-toolbar">
+        <div className="seg tools">
+          {([
+            ['select', MousePointer2, 'Seçim aracı (V)'],
+            ['ripple', ArrowLeftRight, 'Dalgalı kırpma (B): kenarı çekince arkadaki klipler de kayar'],
+            ['slip', MoveHorizontal, 'Kaydırma / slip (Y): klip yerinde kalır, içindeki görüntü kayar'],
+            ['rate', Gauge, 'Hız esnetme (T): kenarı çekerek klibi hızlandır / yavaşlat'],
+          ] as const).map(([id, Icon, title]) => (
+            <button key={id} className={tool === id ? 'on' : ''} title={title} onClick={() => set({ tool: id })}>
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+        <div className="vsep" />
         <button className="icon-btn" title="Böl (S)" onClick={() => splitAt()}>
           <Scissors size={16} />
         </button>
@@ -774,6 +906,10 @@ export default function Timeline() {
           <Bookmark size={16} />
         </button>
         <div className="spacer" />
+        {shuttle !== 1 && <span className="shuttle-badge">{shuttle < 0 ? '◀◀' : '▶▶'} {Math.abs(shuttle)}×</span>}
+        <button className="icon-btn" title="Klavye kısayolları (?)" onClick={() => set({ shortcutsOpen: true })}>
+          <Keyboard size={16} />
+        </button>
         <button className={'icon-btn' + (snapping ? ' on' : '')} title="Mıknatıs (N) — Alt ile geçici kapat" onClick={() => set({ snapping: !snapping })}>
           <Magnet size={16} />
         </button>
@@ -822,7 +958,7 @@ export default function Timeline() {
               <div className="tl-row" key={t.id} data-track={t.id}>
                 <TrackHead t={t} isMain={t.id === mainId} h={h} />
                 <div
-                  className={'tl-lane' + (t.locked ? ' locked' : '') + (ghost && ghost.trackId === t.id ? ' drop' : '')}
+                  className={'tl-lane tool-' + tool + (t.locked ? ' locked' : '') + (ghost && ghost.trackId === t.id ? ' drop' : '')}
                   style={{ width: laneW, height: h, ['--grid' as any]: `${pickStep(pps, project.fps) * pps}px` }}
                   onPointerDown={(e) => {
                     if (e.button === 0 && !e.shiftKey) select([]);

@@ -16,6 +16,7 @@ import { clipDur, formatDuration } from '../lib/util';
 import { ASPECTS } from '../lib/project';
 import { Slider, Toggle, Segmented, ColorInput } from './ui';
 import { Shape } from './StartScreen';
+import { KeyedTransform, CompositeGroups, LumetriGroups, Scopes } from './ProTabs';
 
 type Tab = 'text' | 'visual' | 'audio' | 'speed' | 'color' | 'vfx';
 const TAB_NAMES: Record<Tab, string> = { text: 'Metin', visual: 'Görüntü', audio: 'Ses', speed: 'Hız', color: 'Renk', vfx: 'Efekt' };
@@ -68,16 +69,7 @@ function VisualTab({ c, p }: { c: Clip; p: Project }) {
           </button>
         }
       >
-        <div className="row">
-          <label>Konum</label>
-          <div className="grid2 grow">
-            <NumberBox label="X" value={c.x} onChange={(v) => up((x) => void (x.x = v), 'x')} />
-            <NumberBox label="Y" value={c.y} onChange={(v) => up((x) => void (x.y = v), 'y')} />
-          </div>
-        </div>
-        <Slider label="Ölçek" value={c.scale} min={0.05} max={5} step={0.01} def={1} mult={100} unit="%" onChange={(v) => up((x) => void (x.scale = v), 'scale')} />
-        <Slider label="Döndürme" value={c.rotation} min={-180} max={180} step={1} def={0} unit="°" onChange={(v) => up((x) => void (x.rotation = v), 'rot')} />
-        <Slider label="Opaklık" value={c.opacity} min={0} max={1} step={0.01} def={1} mult={100} unit="%" onChange={(v) => up((x) => void (x.opacity = v), 'op')} />
+        <KeyedTransform c={c} p={p} />
         <div className="row" style={{ marginTop: 10 }}>
           <button className="btn sm" onClick={() => up((x) => Object.assign(x, { x: 0, y: 0 }), 'center')}>
             <Crosshair size={13} /> Ortala
@@ -99,6 +91,7 @@ function VisualTab({ c, p }: { c: Clip; p: Project }) {
           )}
         </div>
       </Group>
+      <CompositeGroups c={c} />
       <Group title="Geçişler">
         <div className="row">
           <label>Giriş</label>
@@ -143,33 +136,6 @@ function VisualTab({ c, p }: { c: Clip; p: Project }) {
         {c.tIn === 'dissolve' && <p className="hint">Çözülme, klibi bir öncekinin üzerine eritir; bu yüzden klip biraz erken başlar.</p>}
       </Group>
     </>
-  );
-}
-
-function NumberBox({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  const [txt, setTxt] = useState<string | null>(null);
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span className="muted" style={{ width: 10 }}>
-        {label}
-      </span>
-      <input
-        className="num"
-        style={{ width: '100%' }}
-        value={txt ?? String(Math.round(value))}
-        onFocus={(e) => {
-          setTxt(String(Math.round(value)));
-          requestAnimationFrame(() => e.target.select());
-        }}
-        onChange={(e) => setTxt(e.target.value)}
-        onBlur={() => {
-          const v = parseFloat(txt || '');
-          if (!isNaN(v)) onChange(v);
-          setTxt(null);
-        }}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      />
-    </div>
   );
 }
 
@@ -265,6 +231,41 @@ function AudioTab({ c }: { c: Clip }) {
         </div>
         {afxById(c.afx).exportOnly && <p className="hint">Bu efektin tam etkisi dışa aktarmada duyulur.</p>}
       </Group>
+      <Group
+        title="Ekolayzer"
+        right={
+          <button className="icon-btn sm" title="EQ'yu sıfırla" onClick={() => up((x) => void (x.eq = undefined), 'eq0')}>
+            <RotateCcw size={13} />
+          </button>
+        }
+      >
+        {(() => {
+          const eq = c.eq || { hp: 0, low: 0, mid: 0, midF: 1000, high: 0 };
+          const setEq = (patch: Partial<typeof eq>, k: string) => up((x) => void (x.eq = { ...eq, ...patch }), 'eq' + k);
+          return (
+            <>
+              <Slider label="Alçak kes" value={eq.hp} min={0} max={300} step={5} def={0} unit=" Hz" onChange={(v) => setEq({ hp: v }, 'hp')} />
+              <Slider label="Bas" value={eq.low} min={-12} max={12} step={0.5} def={0} digits={1} unit=" dB" onChange={(v) => setEq({ low: v }, 'lo')} />
+              <Slider label="Orta" value={eq.mid} min={-12} max={12} step={0.5} def={0} digits={1} unit=" dB" onChange={(v) => setEq({ mid: v }, 'mi')} />
+              <Slider label="Orta frekans" value={eq.midF} min={200} max={5000} step={50} def={1000} unit=" Hz" onChange={(v) => setEq({ midF: v }, 'mf')} />
+              <Slider label="Tiz" value={eq.high} min={-12} max={12} step={0.5} def={0} digits={1} unit=" dB" onChange={(v) => setEq({ high: v }, 'hi')} />
+            </>
+          );
+        })()}
+        <div className="row" style={{ marginTop: 8 }}>
+          <label>Uğultu giderme</label>
+          <Segmented
+            value={String(c.dehum || 0)}
+            options={[{ value: '0', label: 'Kapalı' }, { value: '50', label: '50 Hz' }, { value: '60', label: '60 Hz' }]}
+            onChange={(v) => up((x) => void (x.dehum = v === '0' ? undefined : (Number(v) as 50 | 60)), 'hum')}
+          />
+        </div>
+        <div className="row">
+          <label>Limiter</label>
+          <Toggle on={!!c.limit} onChange={(v) => up((x) => void (x.limit = v || undefined), 'lim')} title="Tepeleri −1.5 dB'de keser, patlamayı önler" />
+        </div>
+        <p className="hint">Türkiye’de elektrik uğultusu 50 Hz’dir. Limiter, bağırma/kahkaha gibi ani tepelerde sesin patlamasını önler.</p>
+      </Group>
       <SilenceTools c={c} />
       <Group title="Ses ayırma">
         {c.chan && (
@@ -326,6 +327,7 @@ function ColorTab({ c }: { c: Clip }) {
   const up = (patch: Partial<typeof col>, key: string) => updateClips([c.id], (x) => void (x.color = { ...x.color, ...patch }), 'color-' + key + c.id);
   return (
     <>
+      <Scopes />
       <Group title="Filtreler">
         <div className="filters">
           {PRESETS.map((pr) => (
@@ -356,6 +358,7 @@ function ColorTab({ c }: { c: Clip }) {
         <Slider label="Sıcaklık" value={col.temperature} min={-100} max={100} step={1} def={0} onChange={(v) => up({ temperature: v }, 't')} />
         <Slider label="Ton" value={col.hue} min={-180} max={180} step={1} def={0} unit="°" onChange={(v) => up({ hue: v }, 'h')} />
       </Group>
+      <LumetriGroups c={c} />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import type { AudioChannel } from '../types';
+import type { AudioChannel, Clip } from '../types';
 
 /**
  * Audio effects. Each preset is defined once as a list of stages; the preview builds
@@ -14,7 +14,8 @@ type Stage =
   | { t: 'taps'; taps: [number, number][]; dry: number; out: number }
   | { t: 'comp'; thr: number; ratio: number; att: number; rel: number; makeup: number }
   | { t: 'clip'; drive: number }
-  | { t: 'denoise' };
+  | { t: 'denoise' }
+  | { t: 'limit'; db: number };
 
 export interface AfxDef {
   id: string;
@@ -54,9 +55,25 @@ export const afxById = (id?: string) => AFX.find((a) => a.id === (id || 'none'))
 const n = (v: number) => (Math.round(v * 10000) / 10000).toString();
 const dbToLin = (db: number) => Math.pow(10, db / 20);
 
-export function afxFfmpeg(id?: string): string[] {
+/** Per-clip extra stages: parametric EQ, hum removal, limiter (applied after the preset). */
+export function clipStages(c: Pick<Clip, 'eq' | 'dehum' | 'limit'>): Stage[] {
+  const s: Stage[] = [];
+  const e = c.eq;
+  if (e) {
+    if (e.hp > 0) s.push({ t: 'hp', f: e.hp });
+    if (e.low) s.push({ t: 'lowshelf', f: 150, g: e.low });
+    if (e.mid) s.push({ t: 'peak', f: e.midF || 1000, g: e.mid, q: 1 });
+    if (e.high) s.push({ t: 'highshelf', f: 6000, g: e.high });
+  }
+  if (c.dehum) for (let h = 1; h <= 4; h++) s.push({ t: 'peak', f: c.dehum * h, g: -30, q: 12 });
+  if (c.limit) s.push({ t: 'limit', db: -1.5 });
+  return s;
+}
+export const clipFxKey = (c: Pick<Clip, 'afx' | 'chan' | 'eq' | 'dehum' | 'limit'>) => [c.afx || 'none', c.chan || '', JSON.stringify(c.eq || 0), c.dehum || 0, c.limit ? 1 : 0].join('|');
+
+export function afxFfmpeg(id?: string, extra: Stage[] = []): string[] {
   const out: string[] = [];
-  for (const s of afxById(id).stages) {
+  for (const s of [...afxById(id).stages, ...extra]) {
     switch (s.t) {
       case 'hp':
         out.push(`highpass=f=${s.f}:p=2:t=q:w=0.7071`);
@@ -90,6 +107,9 @@ export function afxFfmpeg(id?: string): string[] {
       case 'denoise':
         out.push('afftdn=nr=18:nf=-40');
         break;
+      case 'limit':
+        out.push(`alimiter=limit=${n(dbToLin(s.db))}:attack=1:release=60:level=0`);
+        break;
     }
   }
   return out;
@@ -111,7 +131,7 @@ export function chanFfmpeg(chan?: AudioChannel): string[] {
 }
 
 /** WebAudio chain: input → [channel] → [effect stages] → returned output. */
-export function buildAudioChain(ctx: BaseAudioContext, input: AudioNode, afx?: string, chan?: AudioChannel) {
+export function buildAudioChain(ctx: BaseAudioContext, input: AudioNode, afx?: string, chan?: AudioChannel, extra: Stage[] = []) {
   const nodes: AudioNode[] = [];
   let cur: AudioNode = input;
   const add = <T extends AudioNode>(node: T): T => {
@@ -146,8 +166,18 @@ export function buildAudioChain(ctx: BaseAudioContext, input: AudioNode, afx?: s
     nodes.push(split, merge);
     cur = merge;
   }
-  for (const s of afxById(afx).stages) {
+  for (const s of [...afxById(afx).stages, ...extra]) {
     switch (s.t) {
+      case 'limit': {
+        const c = ctx.createDynamicsCompressor();
+        c.threshold.value = s.db;
+        c.ratio.value = 20;
+        c.attack.value = 0.001;
+        c.release.value = 0.06;
+        c.knee.value = 0;
+        add(c);
+        break;
+      }
       case 'hp':
       case 'lp': {
         const b = ctx.createBiquadFilter();
