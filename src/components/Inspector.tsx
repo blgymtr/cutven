@@ -5,7 +5,7 @@ import type { Clip, Project, TextStyle, TransType } from '../types';
 import { updateClips, detachAudio, deleteSelected } from '../lib/actions';
 import { TRANSITIONS } from '../lib/transitions';
 import { VfxTab } from './VfxPanel';
-import { splitAtScenes } from '../lib/convert';
+import { splitAtScenes, setFormat } from '../lib/convert';
 import { volAt, hasKeyAtPlayhead, setVolumeAtPlayhead, toggleKeyAtPlayhead, clearKeys, autoDuck } from '../lib/keyframes';
 import { AFX, afxById } from '../lib/afx';
 import { cutSilences, silencePreview, splitChannels, setChannel, exportClipAudio } from '../lib/audiotools';
@@ -487,12 +487,7 @@ function ProjectSettings({ p }: { p: Project }) {
             <button
               key={a.id}
               className={'aspect' + (a.w === p.width && a.h === p.height ? ' on' : '')}
-              onClick={() =>
-                edit((d) => {
-                  d.width = a.w;
-                  d.height = a.h;
-                })
-              }
+              onClick={() => setFormat(a.w, a.h)}
             >
               <Shape w={a.w} h={a.h} size={22} />
               <div>

@@ -29,7 +29,8 @@ const b64 = (s: string) => {
 const ffPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:');
 
 export interface ExportOptions {
-  format: 'mp4' | 'mp3' | 'wav';
+  /** pcm: raw 16 kHz mono float samples for speech recognition */
+  format: 'mp4' | 'mp3' | 'wav' | 'pcm';
   width: number;
   height: number;
   fps: number;
@@ -277,7 +278,8 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
         const zexpr = [fx.zoom, mo.zoom].filter(Boolean).join('*');
         if (zexpr) {
           const px = mo.pan ? `+(${mo.pan}-0.5)*(iw-iw/zoom)` : '';
-          tail.push(`zoompan=z='${zexpr}':x='iw/2-iw/zoom/2${px}':y='ih/2-ih/zoom/2':d=1:s=${w}x${h}:fps=${fps}`);
+          // zoompan emits one frame per input frame at `fps`: conform first, or 60 fps footage plays at half speed
+          tail.push(`fps=${fps}`, `zoompan=z='${zexpr}':x='iw/2-iw/zoom/2${px}':y='ih/2-ih/zoom/2':d=1:s=${w}x${h}:fps=${fps}`);
         }
         const rad = hasKeys(c0, 'rotation') ? 0 : (c.rotation * Math.PI) / 180;
         const Sloc = `(${n3(c.in)}+(t-${n3(pre)})*${n3(c.speed)})`;
@@ -415,6 +417,7 @@ export async function buildExport(p: Project, o: ExportOptions): Promise<ExportJ
   if (o.measureOnly) output = ['-map', '[aout]', '-t', n3(total), '-f', 'null', '-'];
   else if (o.format === 'mp3') output = ['-map', '[aout]', '-c:a', 'libmp3lame', '-b:a', '320k', '-ar', '48000', '-t', n3(total), o.outPath];
   else if (o.format === 'wav') output = ['-map', '[aout]', '-c:a', 'pcm_s16le', '-ar', '48000', '-t', n3(total), o.outPath];
+  else if (o.format === 'pcm') output = ['-map', '[aout]', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_f32le', '-f', 'f32le', '-t', n3(total), o.outPath];
   else if (o.codec === 'gif') output = ['-map', '[vout]', '-loop', '0', '-t', n3(total), o.outPath];
   else if (o.codec === 'png') output = ['-map', '[vout]', '-c:v', 'png', '-t', n3(total), '-start_number', '1', o.outPath];
   else if (o.codec === 'prores')

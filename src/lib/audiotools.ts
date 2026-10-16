@@ -190,7 +190,8 @@ export async function exportClipAudio(id: string, fmt: 'wav' | 'mp3') {
   const out = await window.cv.invoke<string | null>('dialog:saveExport', m.name.replace(/\.[^.]+$/, '') + ' - ses', fmt);
   if (!out) return;
   const clip: Clip = { ...c, start: 0, muted: false };
-  const mini: Project = { ...p, clips: [clip], tracks: p.tracks.map((t) => (t.id === c.trackId ? { ...t, muted: false } : t)) };
+  // only this clip plays: unmute its track and ignore any solo elsewhere (it would silence the clip)
+  const mini: Project = { ...p, clips: [clip], tracks: p.tracks.map((t) => (t.id === c.trackId ? { ...t, muted: false, solo: false } : { ...t, solo: false })) };
   toast('Ses kaydediliyor…');
   const job = await buildExport(mini, { format: fmt, width: 0, height: 0, fps: 30, crf: 0, preset: '', normalize: false, outPath: out });
   const r = await window.cv.invoke<{ ok: boolean; error?: string }>('export:start', job);

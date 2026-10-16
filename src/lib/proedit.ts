@@ -3,6 +3,7 @@ import { edit, get, set, toast } from '../store';
 import type { Clip, MediaItem, Project } from '../types';
 import { clipFromMedia, insertTrack } from './actions';
 import { clipDur, clipEnd, projectDuration, uid } from './util';
+import { shiftedKeys } from './vkeys';
 
 /**
  * Pro editing (Premiere-style): In/Out marks, lift / extract, ripple trims (Q/W),
@@ -69,6 +70,7 @@ function splitDraft(d: D, c: Draft<Clip>, t: number): Draft<Clip> | null {
   } else {
     right.in = 0;
     right.out = c.out - (t - c.start);
+    right.keys = shiftedKeys(right.keys, (t - c.start) * c.speed);
     c.out = t - c.start;
     c.in = 0;
   }
@@ -149,7 +151,10 @@ export function rippleTrim(edge: 'start' | 'end') {
     const x = d.clips.find((q) => q.id === c.id)!;
     if (edge === 'start') {
       if (isSourced(c)) x.in = c.in + removed * c.speed;
-      else x.out = c.out - removed;
+      else {
+        x.out = c.out - removed;
+        x.keys = shiftedKeys(c.keys, removed * c.speed);
+      }
       x.fadeIn = Math.min(x.fadeIn, clipDur(x as Clip) / 2);
     } else {
       x.out = isSourced(c) ? c.in + (t - c.start) * c.speed : t - c.start;
@@ -184,6 +189,10 @@ export interface SourceMarks {
 export function placeSource(m: MediaItem, src: { in: number; out: number }, mode: 'insert' | 'overwrite') {
   const p = get().project!;
   const at = p.inPoint ?? get().time;
+  if (m.type !== 'image' && src.out - src.in < 1 / p.fps) {
+    toast('Kaynakta çıkış noktası girişten sonra olmalı (I / O)');
+    return '';
+  }
   const len = Math.max(1 / p.fps, src.out - src.in);
   const kind: Clip['kind'] = m.type === 'image' ? 'image' : m.type === 'audio' ? 'audio' : 'video';
   const isAudio = kind === 'audio';

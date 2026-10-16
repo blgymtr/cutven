@@ -1,12 +1,13 @@
 import { get, set, useStore } from '../store';
 import type { Clip, Project } from '../types';
 import { clamp, clipDur, fadeEnv, mediaUrl, projectDuration } from './util';
-import { drawFrame, mediaOf } from './render';
+import { activeVisuals, drawFrame, mediaOf } from './render';
 import { ensureFont } from './text';
 import { buildAudioChain, clipStages, clipFxKey } from './afx';
 import { visStart } from './transitions';
 import { volAt } from './keyframes';
 import { trackMix, LoudnessMeter } from './mix';
+import { activeCaption, captionTextStyle, styleOf } from './captions';
 
 interface PlayerEl {
   el: HTMLVideoElement;
@@ -17,8 +18,17 @@ interface PlayerEl {
   fx: AudioNode[];
   fxKey: string;
   pending: number | null;
+  /** waiting for metadata before the first seek */
+  metaWait: boolean;
   lastUsed: number;
+  /** copy of the last decoded frame: drawn while the element seeks / reloads instead of nothing (black) */
+  hold: HTMLCanvasElement | null;
 }
+
+/** longest side of a held frame (it is only shown for the moment a seek takes) */
+const HOLD_MAX = 1920;
+/** how long the preview keeps the previous picture while a newly reached clip is still loading */
+const WAIT_MS = 700;
 
 class Engine {
   canvas: HTMLCanvasElement | null = null;
@@ -38,6 +48,10 @@ class Engine {
   muted = false;
   /** extra redraw listeners (e.g. preview overlay) */
   onFrame: (() => void) | null = null;
+  /** the canvas holds a complete picture (false right after attach / resize) */
+  private drawn = false;
+  /** since when a visible clip has had no picture to draw */
+  private waitSince = 0;
 
   constructor() {
     useStore.subscribe((s, prev) => {
@@ -57,7 +71,28 @@ class Engine {
   attach(canvas: HTMLCanvasElement | null) {
     this.canvas = canvas;
     this.ctx = canvas ? canvas.getContext('2d', { alpha: false }) : null;
+    this.drawn = false;
     this.dirty = true;
+  }
+
+  /** Resize the preview canvas without flashing: the old picture is scaled into the new size, then redrawn. */
+  resize(w: number, h: number) {
+    const cv = this.canvas;
+    w = Math.max(1, w);
+    h = Math.max(1, h);
+    if (!cv || (cv.width === w && cv.height === h)) return;
+    let snap: HTMLCanvasElement | null = null;
+    if (this.drawn && cv.width > 1 && cv.height > 1) {
+      snap = document.createElement('canvas');
+      snap.width = cv.width;
+      snap.height = cv.height;
+      snap.getContext('2d')!.drawImage(cv, 0, 0);
+    }
+    cv.width = w;
+    cv.height = h;
+    if (snap && this.ctx) this.ctx.drawImage(snap, 0, 0, w, h);
+    this.dirty = true;
+    this.tick();
   }
 
   invalidate() {
@@ -95,6 +130,7 @@ class Engine {
     e.el.pause();
     e.el.removeAttribute('src');
     e.el.load();
+    if (e.hold) e.hold.width = e.hold.height = 0;
     try {
       e.node.disconnect();
       e.fx.forEach((n) => n.disconnect());
@@ -125,15 +161,21 @@ class Engine {
       const pan = actx.createStereoPanner();
       gain.connect(pan);
       pan.connect(this.bus());
-      const pe: PlayerEl = { el, src, gain, pan, node, fx: [], fxKey: '#', pending: null, lastUsed: performance.now() };
+      const pe: PlayerEl = { el, src, gain, pan, node, fx: [], fxKey: '#', pending: null, metaWait: false, lastUsed: performance.now(), hold: null };
       el.addEventListener('seeked', () => {
+        // keep the frame we just reached, so the next seek (scrubbing) has something to show
+        this.grab(pe);
         if (pe.pending != null) {
-          el.currentTime = pe.pending;
+          const next = pe.pending;
           pe.pending = null;
+          if (Math.abs(el.currentTime - next) > 0.004) el.currentTime = next;
         }
         this.dirty = true;
       });
-      el.addEventListener('loadeddata', () => (this.dirty = true));
+      el.addEventListener('loadeddata', () => {
+        this.grab(pe);
+        this.dirty = true;
+      });
       this.els.set(c.id, pe);
       e = pe;
     }
@@ -151,27 +193,58 @@ class Engine {
     return e;
   }
 
+  /** Copy the element's current frame into its hold canvas (only when a real frame is there). */
+  private grab(e: PlayerEl) {
+    const el = e.el;
+    if (el.readyState < 2 || el.seeking || !el.videoWidth || !el.videoHeight) return;
+    const k = Math.min(1, HOLD_MAX / Math.max(el.videoWidth, el.videoHeight));
+    const w = Math.max(2, Math.round(el.videoWidth * k));
+    const h = Math.max(2, Math.round(el.videoHeight * k));
+    let cv = e.hold;
+    if (!cv) cv = e.hold = document.createElement('canvas');
+    if (cv.width !== w || cv.height !== h) {
+      cv.width = w;
+      cv.height = h;
+    }
+    try {
+      cv.getContext('2d')!.drawImage(el, 0, 0, w, h);
+    } catch {
+      e.hold = null;
+    }
+  }
+
+  /** Seek an element; while it is busy only the latest target is kept (scrubbing never queues up). */
+  private seekTo(e: PlayerEl, target: number) {
+    this.grab(e);
+    e.el.currentTime = target;
+  }
+
   private seekEl(e: PlayerEl, target: number, tol: number) {
     const el = e.el;
     if (el.readyState === 0) {
       e.pending = target;
-      el.addEventListener(
-        'loadedmetadata',
-        () => {
-          if (e.pending != null) {
-            el.currentTime = e.pending;
-            e.pending = null;
-          }
-        },
-        { once: true },
-      );
+      if (!e.metaWait) {
+        e.metaWait = true;
+        el.addEventListener(
+          'loadedmetadata',
+          () => {
+            e.metaWait = false;
+            if (e.pending != null) {
+              el.currentTime = e.pending;
+              e.pending = null;
+            }
+          },
+          { once: true },
+        );
+      }
       return;
     }
     if (el.seeking) {
       e.pending = target;
       return;
     }
-    if (Math.abs(el.currentTime - target) > tol) el.currentTime = target;
+    e.pending = null;
+    if (Math.abs(el.currentTime - target) > tol) this.seekTo(e, target);
   }
 
   private image(p: Project, c: Clip): HTMLImageElement | null {
@@ -196,24 +269,28 @@ class Engine {
       if (c.kind !== 'video' && c.kind !== 'audio') continue;
       const dur = clipDur(c);
       const vs = visStart(c);
-      const active = t >= vs && t < c.start + dur;
-      const soon = !active && t >= vs - 2 && t < vs;
-      if (!active && !soon) continue;
+      const end = c.start + dur;
+      const active = t >= vs && t < end;
+      // warm up the next clip (and, while paused, the previous one for scrubbing back)
+      const ahead = !active && t >= vs - 2 && t < vs;
+      const behind = !active && !this.playing && t >= end && t < end + 1;
+      if (!active && !ahead && !behind) continue;
       const e = this.ensure(p, c);
       if (!e) continue;
       live.add(c.id);
       const el = e.el;
-      const local = active ? t - c.start : vs - c.start;
-      const target = Math.max(0, c.in + local * c.speed);
+      const local = active ? t - c.start : ahead ? vs - c.start : dur - 1 / fps;
+      const target = Math.min(Math.max(0, c.in + local * c.speed), Math.max(0, c.out - 0.001));
       const scrub = this.playing && (this.rate < 0 || this.rate > 4);
       if (active && this.playing && !scrub) {
         const pr = Math.min(16, c.speed * this.rate);
         if (el.playbackRate !== pr) el.playbackRate = pr;
         if (el.paused) {
-          if (Math.abs(el.currentTime - target) > 0.05) el.currentTime = target;
+          if (el.readyState === 0) this.seekEl(e, target, 0.05);
+          else if (!el.seeking && Math.abs(el.currentTime - target) > 0.05) this.seekTo(e, target);
           el.play().catch(() => {});
-        } else if (Math.abs(el.currentTime - target) > 0.3) {
-          el.currentTime = target;
+        } else if (!el.seeking && Math.abs(el.currentTime - target) > 0.3) {
+          this.seekTo(e, target);
         }
       } else {
         if (!el.paused) el.pause();
@@ -241,22 +318,58 @@ class Engine {
     const p = get().project!;
     if (c.kind === 'image') return this.image(p, c);
     const e = this.els.get(c.id);
-    if (!e || e.el.readyState < 2) return null;
-    return e.el;
+    if (!e) return null;
+    const el = e.el;
+    // Chromium drops readyState to HAVE_METADATA during a seek and drawImage() then draws nothing:
+    // show the last decoded frame of this clip instead of a black hole.
+    if (el.readyState >= 2 && !el.seeking && el.videoWidth) return el;
+    if (e.hold) return e.hold;
+    return el.readyState >= 2 && el.videoWidth ? el : null;
   };
 
-  private draw(p: Project, t: number) {
+  /** A visible video clip has nothing to draw yet (its element is still loading). */
+  private loading(p: Project, t: number): boolean {
+    for (const c of activeVisuals(p, t)) {
+      if (c.kind !== 'video') continue;
+      const e = this.els.get(c.id);
+      if (!e) {
+        // not created yet but playable: it will be on the next sync
+        if (this.srcFor(p, c)) return true;
+        continue;
+      }
+      if (e.el.error) continue;
+      if (!e.hold && !(e.el.readyState >= 2 && e.el.videoWidth)) return true;
+    }
+    return false;
+  }
+
+  /** Draw the frame; returns false when it kept the previous picture (a clip is still loading). */
+  private draw(p: Project, t: number): boolean {
     const ctx = this.ctx;
     const cv = this.canvas;
-    if (!ctx || !cv) return;
+    if (!ctx || !cv) return true;
+    if (this.drawn && this.loading(p, t)) {
+      const now = performance.now();
+      if (!this.waitSince) this.waitSince = now;
+      // keep showing the last good picture for a moment instead of flashing black
+      if (now - this.waitSince < WAIT_MS) return false;
+    } else this.waitSince = 0;
     for (const c of p.clips) {
       if (c.kind === 'text' && c.text) {
         const r = ensureFont(c.text);
         if (r !== true) r.then(() => (this.dirty = true));
       }
     }
+    // captions skip drawing until their font is loaded: redraw once it is
+    const cap = activeCaption(p, t);
+    if (cap) {
+      const r = ensureFont(captionTextStyle(styleOf(p), cap.text, p.width));
+      if (r !== true) r.then(() => (this.dirty = true));
+    }
     drawFrame(ctx, p, t, cv.width / p.width, this.source);
+    this.drawn = true;
     this.onFrame?.();
+    return true;
   }
 
   private tick() {
@@ -284,7 +397,7 @@ class Engine {
     } else if (this.dirty) {
       this.dirty = false;
       this.sync(p, s.time);
-      this.draw(p, s.time);
+      if (!this.draw(p, s.time)) this.dirty = true;
     }
   }
 

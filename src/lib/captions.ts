@@ -203,8 +203,8 @@ export function splitCaption(id: string, t = get().time) {
 
 /* ------------------------------------------------------------ script → timed captions */
 
-/** Break a script into short caption phrases (sentence, then commas, then ~maxWords). */
-export function phrases(script: string, maxWords = 8): string[] {
+/** Break a script into short caption phrases (sentence, then commas, then ~maxWords / ~maxChars). */
+export function phrases(script: string, maxWords = 8, maxChars = 52): string[] {
   const out: string[] = [];
   const sentences = script
     .replace(/\s+/g, ' ')
@@ -222,6 +222,8 @@ export function phrases(script: string, maxWords = 8): string[] {
       const w = part.split(' ');
       if (cur.length + w.length > maxWords && cur.length >= 3) flush();
       for (const word of w) {
+        // long Turkish words: keep a phrase within ~two caption lines
+        if (cur.length >= 2 && (cur.join(' ') + ' ' + word).length > maxChars) flush();
         cur.push(word);
         if (cur.length >= maxWords) flush();
       }
@@ -272,6 +274,24 @@ export function timeScript(script: string, regions: [number, number][], fallback
   }
   for (let i = 0; i < out.length - 1; i++) if (out[i].end > out[i + 1].start) out[i].end = out[i + 1].start;
   return out;
+}
+
+/** Recognised speech (one text per window + its speech regions) → timed caption lines. */
+export function captionsFromSegments(segs: { start: number; end: number; text: string; regions: [number, number][] }[], total: number): Caption[] {
+  const out: Caption[] = [];
+  for (const s of segs) {
+    const regs = s.regions?.length ? s.regions : [[s.start, s.end] as [number, number]];
+    for (const c of timeScript(s.text, regs, s.start)) {
+      // a phrase never leaves the window it was heard in, nor stays up much longer than it takes to say
+      const words = c.text.split(/\s+/).filter(Boolean).length;
+      c.start = Math.max(c.start, s.start);
+      c.end = Math.min(Math.max(c.end, c.start + 0.4), Math.max(s.end, c.start + 0.4), c.start + 1.5 + words * 0.8);
+      out.push(c);
+    }
+  }
+  out.sort((a, b) => a.start - b.start);
+  for (let i = 0; i < out.length - 1; i++) if (out[i].end > out[i + 1].start) out[i].end = Math.max(out[i].start + 0.2, out[i + 1].start);
+  return out.filter((c) => c.text.trim() && c.start < total).map((c) => ({ ...c, end: Math.min(c.end, total) }));
 }
 
 export function captionsFromScript() {

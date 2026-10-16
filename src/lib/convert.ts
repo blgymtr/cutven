@@ -1,8 +1,45 @@
 import { edit, get, set, toast } from '../store';
-import type { Clip, Project } from '../types';
+import type { Clip, KeyProp, Project } from '../types';
 import { clipDur, uid } from './util';
 import { mediaOf } from './render';
+import { measureText } from './text';
 import { openProject, saveProject } from './project';
+
+/* ------------------------------------------------------------ format change */
+
+/** Multiply a property and its keyframes. */
+function scaleProp(c: Clip, prop: KeyProp, k: number) {
+  (c as any)[prop] = (c[prop] as number) * k;
+  const keys = c.keys?.[prop];
+  if (keys) c.keys = { ...c.keys, [prop]: keys.map((x) => ({ ...x, v: x.v * k })) };
+}
+
+/**
+ * Re-lay a project for a new frame size: the old frame is fitted into the new one (factor k), so
+ * positions, text sizes and their keyframes follow it. Video, image and colour clips are sized
+ * relative to the frame already, only their offsets need scaling.
+ */
+export function reflowClips(clips: Clip[], k: number) {
+  if (!isFinite(k) || k <= 0 || Math.abs(k - 1) < 1e-6) return;
+  for (const c of clips) {
+    if (c.kind === 'audio') continue;
+    scaleProp(c, 'x', k);
+    scaleProp(c, 'y', k);
+    if (c.kind === 'text') scaleProp(c, 'scale', k);
+  }
+}
+
+/** Change the project format (16:9, 9:16 …) keeping the layout proportional. */
+export function setFormat(w: number, h: number) {
+  const p = get().project;
+  if (!p || (p.width === w && p.height === h)) return;
+  const k = Math.min(w / p.width, h / p.height);
+  edit((d) => {
+    reflowClips(d.clips as Clip[], k);
+    d.width = w;
+    d.height = h;
+  });
+}
 
 /** Split a video clip at detected scene changes. */
 export async function splitAtScenes(id: string, threshold = 0.32) {
@@ -66,20 +103,20 @@ export async function convertToShorts() {
   copy.yt = undefined;
   copy.lastExport = undefined;
   copy.createdAt = copy.updatedAt = Date.now();
+  // positions, text sizes and keyframes follow the frame (the old frame fitted into the new one)
+  reflowClips(copy.clips, k);
   for (const c of copy.clips) {
-    if (c.kind === 'audio') continue;
-    if (c.kind === 'text') {
-      c.x *= k;
-      c.y *= k;
+    if (c.kind === 'audio' || c.kind === 'color') continue;
+    if (c.kind === 'text' && c.text) {
       // titles read better a bit bigger on phones, but must stay inside the width
-      c.scale *= 1.1;
+      const tw = measureText(c.text).w;
+      const widest = Math.max(c.scale, ...(c.keys?.scale || []).map((x) => x.v));
+      const grow = Math.max(1, Math.min(1.5, tw > 0 ? (W * 0.9) / (tw * widest) : 1.5));
+      if (grow > 1) scaleProp(c, 'scale', grow);
       continue;
     }
-    if (c.kind === 'color') continue;
     const m = mediaOf(copy, c);
     const wide = m && m.width >= m.height;
-    c.x *= k;
-    c.y *= k;
     if (wide) {
       // keep the horizontal video readable in the middle and fill the bars with a blurred copy
       c.scale = Math.max(1, c.scale);

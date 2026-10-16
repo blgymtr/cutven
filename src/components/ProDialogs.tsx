@@ -119,7 +119,8 @@ export function SourceMonitor() {
       const key = e.key.toLowerCase();
       let handled = true;
       if (key === 'i') set({ source: { ...src, in: v.currentTime, out: Math.max(src.out, v.currentTime + 0.1) } });
-      else if (key === 'o') set({ source: { ...src, out: v.currentTime, in: Math.min(src.in, v.currentTime - 0.1 < 0 ? 0 : src.in) } });
+      // Out before In moves In back (never a negative range)
+      else if (key === 'o') set({ source: { ...src, out: Math.max(0.1, v.currentTime), in: Math.min(src.in, Math.max(0, v.currentTime - 0.1)) } });
       else if (key === ' ') v.paused ? v.play() : v.pause();
       else if (key === ',') place('insert');
       else if (key === '.') place('overwrite');
@@ -198,7 +199,10 @@ export function SourceMonitor() {
                 <button className="btn sm" onClick={() => ref.current && set({ source: { ...src, in: ref.current.currentTime, out: Math.max(src.out, ref.current.currentTime + 0.1) } })}>
                   Giriş (I) · {fmt(src.in)}
                 </button>
-                <button className="btn sm" onClick={() => ref.current && set({ source: { ...src, out: ref.current.currentTime } })}>
+                <button
+                  className="btn sm"
+                  onClick={() => ref.current && set({ source: { ...src, out: Math.max(0.1, ref.current.currentTime), in: Math.min(src.in, Math.max(0, ref.current.currentTime - 0.1)) } })}
+                >
                   Çıkış (O) · {fmt(src.out)}
                 </button>
                 <span className="muted">{playing ? 'Oynatılıyor' : fmt(t)} · seçili {formatDuration(src.out - src.in)}</span>

@@ -27,6 +27,7 @@ if (process.env.CUTVEN_USER_DATA) app.setPath('userData', process.env.CUTVEN_USE
 if (process.platform === 'win32') app.setAppUserModelId('com.cutven.app');
 
 let win = null;
+let asr = null;
 let pendingScreen = { id: '', audio: false };
 const fileFromArgv = (argv) => argv.slice(1).find((a) => a.toLowerCase().endsWith('.cutven') && fs.existsSync(a)) || null;
 let pendingOpen = fileFromArgv(process.argv);
@@ -196,6 +197,9 @@ async function probe(file) {
       if (sm) {
         info.width = +sm[1];
         info.height = +sm[2];
+        // non-square pixels (DV, anamorphic): use the display size, as the browser does
+        const sar = /\[SAR (\d+):(\d+)/.exec(line);
+        if (sar && +sar[1] > 0 && +sar[2] > 0 && sar[1] !== sar[2]) info.width = Math.round((info.width * +sar[1]) / +sar[2] / 2) * 2;
       }
       const fm = /(\d+(?:\.\d+)?) fps/.exec(line) || /(\d+(?:\.\d+)?) tbr/.exec(line);
       if (fm) info.fps = parseFloat(fm[1]);
@@ -825,6 +829,7 @@ function registerIpc() {
   h('clipboard:write', (t) => clipboard.writeText(t));
   require('./youtube.cjs').register(h, (ch, d) => win?.webContents.send(ch, d));
   require('./live.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), FFMPEG);
+  asr = require('./asr.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), { runFF, TEMP_DIR, userData: app.getPath('userData') });
   /** Scene cuts (seconds, source time) via ffmpeg's scene score. */
   h('media:scenes', async (file, from, to, threshold) => {
     const args = ['-hide_banner', '-ss', String(from || 0)];
@@ -919,6 +924,7 @@ if (!gotLock) {
       fs.rmSync(SESSION_FILE, { force: true });
     } catch {}
     if (exportProc) exportProc.kill();
+    asr?.dispose();
     fs.rmSync(TEMP_DIR, { recursive: true, force: true });
     app.quit();
   });

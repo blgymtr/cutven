@@ -39,14 +39,14 @@ function PlanChip() {
   return (
     <div className="plan-chip" title="Yayın planı">
       <CalendarDays size={13} />
-      <input type="date" value={date || ''} onChange={(e) => edit((d) => void (d.plannedDate = e.target.value || undefined))} />
+      <input type="date" value={date || ''} onChange={(e) => edit((d) => void (d.plannedDate = e.target.value || undefined), { record: false })} />
       <span className="plan-day">{date ? dayLabel(date) : 'Plan yok'}</span>
       <button
         className="plan-status"
         style={st ? { color: st.color } : undefined}
         onClick={(e) => {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          showMenu(r.left, r.bottom + 6, STATUSES.map((s) => ({ label: s.name, icon: <span className="dot-ico" style={{ background: s.color }} />, onClick: () => edit((d) => void (d.status = s.id)) })));
+          showMenu(r.left, r.bottom + 6, STATUSES.map((s) => ({ label: s.name, icon: <span className="dot-ico" style={{ background: s.color }} />, onClick: () => edit((d) => void (d.status = s.id), { record: false }) })));
         }}
       >
         {st ? st.name : 'Durum'}

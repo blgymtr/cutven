@@ -25,10 +25,10 @@ function Group({ title, right, children }: { title?: string; right?: React.React
 
 /* ================================================================ keyframed transform */
 
-const PROP_UI: Record<KeyProp, { min: number; max: number; step: number; def: number; mult?: number; unit?: string; digits?: number }> = {
+const PROP_UI: Record<KeyProp, { min: number; max: number; step: number; def: number; mult?: number; unit?: string; digits?: number; log?: boolean }> = {
   x: { min: -2000, max: 2000, step: 1, def: 0, unit: 'px' },
   y: { min: -2000, max: 2000, step: 1, def: 0, unit: 'px' },
-  scale: { min: 0.05, max: 5, step: 0.01, def: 1, mult: 100, unit: '%' },
+  scale: { min: 0.05, max: 5, step: 0.01, def: 1, mult: 100, unit: '%', log: true },
   rotation: { min: -360, max: 360, step: 0.5, def: 0, unit: '°' },
   opacity: { min: 0, max: 1, step: 0.01, def: 1, mult: 100, unit: '%' },
 };
@@ -85,6 +85,7 @@ export function KeyedTransform({ c, p }: { c: Clip; p: Project }) {
               mult={u.mult}
               unit={u.unit}
               digits={u.digits}
+              log={u.log}
               onChange={(nv) => updateClips([c.id], (x) => setProp(x, pr.id, nv), 'kp-' + pr.id + c.id)}
             />
             <button

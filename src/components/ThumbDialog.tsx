@@ -29,7 +29,8 @@ export default function ThumbDialog() {
     edit((dr) => {
       if (!dr.thumbDesign) dr.thumbDesign = defaultDesign();
       fn(dr.thumbDesign as ThumbDesign);
-    }, { key: key ? 'thumb-' + key : undefined });
+      // the thumbnail is not in the undo snapshot
+    }, { record: false, key: key ? 'thumb-' + key : undefined });
   const layer = d.layers.find((l) => l.id === sel);
   const upLayer = (fn: (l: ThumbLayer) => void, key: string) =>
     save((x) => {

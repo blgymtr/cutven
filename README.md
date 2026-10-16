@@ -78,9 +78,14 @@ Sahne değişimlerini algılayıp otomatik bölme, projeyi tek tıkla Shorts'a (
 YouTube'a uygun hazır stiller (başlık, altyazı, alt bant, "Abone ol"), 8 yazı tipi, kontur, gölge ve arka plan kutusu.
 
 ### 💬 Altyazılar
+- **Konuşmadan otomatik altyazı:** videodaki konuşmayı yazıya döker ve cümleleri konuşulduğu ana yerleştirir (Whisper, bilgisayarında çalışır)
+  - Dil: Türkçe, İngilizce, Almanca, Fransızca, İspanyolca, Arapça, Rusça ya da otomatik algıla
+  - Model: Hızlı (~130 MB), Dengeli (~500 MB, önerilen), En doğru (~800 MB, Türkçede en iyi sonuç, daha yavaş)
+  - Kaynak: konuşma (müzik ve efekt izleri hariç), duyulan tüm sesler ya da sadece seçili klip
+  - Model ilk kullanımda bir kez indirilir (internet gerekir), sonra tamamen çevrimdışı çalışır; işlem iptal edilebilir
 - Ayrı altyazı izi; satırları zamanla birlikte düzenle, imleçten böl
 - **SRT / VTT** içe ve dışa aktarma
-- **Senaryodan otomatik:** senaryodaki cümleleri konuşmanın olduğu yerlere kendiliğinden yerleştirir
+- **Senaryodan yerleştir:** senaryodaki cümleleri konuşmanın olduğu yerlere kendiliğinden yerleştirir
 - Stil: Klasik, Shorts, Sarı, Sinema hazırları; yazı tipi, boyut, konum, kutu, kontur
 - Videoya göm ya da dışa aktarırken yanına `.srt` koy
 
@@ -194,12 +199,15 @@ npm run dist
 - **Electron** — masaüstü kabuğu, dosya erişimi, ekran/kamera kaydı
 - **React + TypeScript + Vite** — arayüz
 - **FFmpeg** (ffmpeg-static) — dışa aktarma, önizleme kopyaları, ses analizi
+- **Whisper** (transformers.js + ONNX Runtime) — otomatik altyazı; ayrı bir arka plan sürecinde, işlemcide çalışır
 - **Canvas 2D + Web Audio** — gerçek zamanlı önizleme ve ses efektleri
 
 ### Klasör yapısı
 
 ```
 electron/        Ana süreç: pencere, IPC, FFmpeg işleri, dosya akışı
+  asr.cjs           Otomatik altyazı: ses çıkarma, model önbelleği, arka plan süreci
+  asr-core.cjs      Konuşma tespiti (VAD), Whisper ile yazıya dökme
 src/
   components/    Arayüz bileşenleri (zaman çizelgesi, önizleme, paneller…)
   lib/
@@ -213,6 +221,7 @@ src/
     lumetri.ts      Renk düzeltme → 3D LUT (lutgl.ts: WebGL2 önizleme)
     keygl.ts        Yeşil ekran (önizleme, FFmpeg chromakey ile aynı formül)
     captions.ts     Altyazılar (SRT/VTT, otomatik zamanlama, gömme)
+    autocaptions.ts Konuşmadan otomatik altyazı (kaynak seçimi, ilerleme)
     proedit.ts      Giriş/çıkış, lift/extract, üç noktalı kurgu
     mix.ts          İz mikseri ve loudness ölçer
     interchange.ts  FCP7 XML, EDL, OpenTimelineIO

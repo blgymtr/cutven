@@ -118,7 +118,7 @@ export default function TempoPanel() {
           rows={5}
           placeholder="Okuyacağın metni buraya yapıştır. Uygulama süresini ve gereken okuma hızını hesaplar; Kayıt sekmesinde akan metin (prompter) olarak görünür."
           value={script}
-          onChange={(e) => edit((d) => void (d.script = e.target.value), { key: 'script' })}
+          onChange={(e) => edit((d) => void (d.script = e.target.value), { record: false })}
           spellCheck={false}
         />
         {st.syl > 0 && (

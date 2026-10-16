@@ -208,15 +208,21 @@ class Live {
     }
     tracks.push(...dest.stream.getAudioTracks());
     this.actx = actx;
-    // local copy: the very same encoded stream, written straight to disk
-    this.recId = o.record ? (await window.cv.invoke<{ id: string; path: string }>('stream:begin', get().projectPath, 'Canlı yayın', 'webm')).id : '';
     try {
       await window.cv.invoke('live:start', { videoKbps: q.kbps, fps: q.fps, testFile });
     } catch (e: any) {
       this.error = String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      // nothing went live: release the canvas capture, audio graph and microphone
+      tracks.forEach((t) => t.stop());
+      actx.close().catch(() => {});
+      this.actx = null;
+      this.mic?.getTracks().forEach((t) => t.stop());
+      this.mic = null;
       this.emit();
       return;
     }
+    // local copy: the very same encoded stream, written straight to disk (only once the stream is up)
+    this.recId = o.record ? (await window.cv.invoke<{ id: string; path: string }>('stream:begin', get().projectPath, 'Canlı yayın', 'webm')).id : '';
     const mime = ['video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
     const rec = new MediaRecorder(new MediaStream(tracks), { mimeType: mime, videoBitsPerSecond: q.kbps * 1500, audioBitsPerSecond: 192000 });
     rec.ondataavailable = (e) => {
@@ -274,6 +280,17 @@ class Live {
     this.offStats?.();
     this.offEnd?.();
     this.offStats = this.offEnd = null;
+    // the stream may have ended on its own (ffmpeg exit): stop the encoder, or its chunks would leak into the next stream
+    const rec = this.rec;
+    if (rec) {
+      rec.ondataavailable = null;
+      if (rec.state !== 'inactive') {
+        try {
+          rec.stop();
+        } catch {}
+      }
+      rec.stream.getTracks().forEach((t) => t.stop());
+    }
     this.rec = null;
     this.actx?.close().catch(() => {});
     this.actx = null;

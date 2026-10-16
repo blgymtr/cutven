@@ -136,8 +136,9 @@ export function drawFrame(
     if (bb > 0 && a > 0.001 && (c.kind === 'video' || c.kind === 'image')) {
       const src = source(c);
       if (src) {
-        const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || box.w;
-        const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || box.h;
+        // video, image or a held frame (canvas)
+        const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || (src as HTMLCanvasElement).width || box.w;
+        const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || (src as HTMLCanvasElement).height || box.h;
         const cover = Math.max(p.width / sw, p.height / sh);
         ctx.save();
         ctx.setTransform(k, 0, 0, k, 0, 0);

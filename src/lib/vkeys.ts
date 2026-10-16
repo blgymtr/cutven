@@ -92,6 +92,18 @@ export function opacityCommands(c: Clip, target: string, fps: number, pre: numbe
   return lines.join('\n') + '\n';
 }
 
+/**
+ * Text, image and colour clips always start at in=0, so cutting `d` seconds off their head moves the
+ * picture's time origin: their keys move the other way to stay on the same moment.
+ * (Keys outside the clip are kept: they still shape the interpolation at its edges.)
+ */
+export function shiftedKeys(keys: Clip['keys'], d: number): Clip['keys'] {
+  if (!keys || !d) return keys;
+  const out: Partial<Record<KeyProp, Key[]>> = {};
+  for (const [p, list] of Object.entries(keys) as [KeyProp, Key[] | undefined][]) if (list) out[p] = list.map((k) => ({ ...k, s: k.s - d }));
+  return out;
+}
+
 /* ------------------------------------------------------------ editing */
 
 const near = (c: Clip, prop: KeyProp, s: number) => (c.keys?.[prop] || []).findIndex((k) => Math.abs(k.s - s) < (1 / 30) * c.speed + 1e-4);

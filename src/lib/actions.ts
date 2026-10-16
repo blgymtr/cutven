@@ -5,6 +5,7 @@ import { DEFAULT_COLOR } from './color';
 import { DEFAULT_TEXT, TEXT_PRESETS, measureText } from './text';
 import { clipDur, clipEnd, projectDuration, uid, formatChapter } from './util';
 import { engine } from './engine';
+import { shiftedKeys } from './vkeys';
 
 type P = Project | Draft<Project>;
 const EPS = 1e-4;
@@ -167,6 +168,7 @@ export function splitAt(t = get().time) {
       if (c.kind === 'text' || c.kind === 'image' || c.kind === 'color') {
         right.in = 0;
         right.out = tc.out - (t - tc.start);
+        right.keys = shiftedKeys(right.keys, (t - tc.start) * tc.speed);
         c.out = t - c.start;
         c.in = 0;
       }

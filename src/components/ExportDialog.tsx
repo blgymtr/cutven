@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, FolderOpen, Check, Film, Music, Play, Minimize2 } from 'lucide-react';
 import { useStore, set, toast } from '../store';
 import type { HwKind, VideoCodec } from '../lib/exporter';
-import { runExport, pickOutput, startUpload, type RunParams } from '../lib/exportRun';
+import { runExport, pickOutput, startUpload, cancelExport, type RunParams } from '../lib/exportRun';
 import { ioRange } from '../lib/proedit';
 import { engine } from '../lib/engine';
 import { formatDuration, projectDuration } from '../lib/util';
@@ -309,7 +309,7 @@ export default function ExportDialog() {
               <button className="btn ghost" onClick={() => set({ exportOpen: false })}>
                 <Minimize2 size={14} /> Arka planda sürdür
               </button>
-              <button className="btn" onClick={() => window.cv.invoke('export:cancel')}>
+              <button className="btn" onClick={cancelExport}>
                 İptal
               </button>
             </>

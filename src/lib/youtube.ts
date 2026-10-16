@@ -59,7 +59,8 @@ export const metaOf = (p: Project): YtMeta => ({ ...defaultMeta(p), ...(p.yt || 
 export function updateMeta(patch: Partial<YtMeta>, key?: string) {
   edit((d) => {
     d.yt = { ...metaOf(d as Project), ...(d.yt || {}), ...patch };
-  }, { key: key ? 'yt-' + key : undefined });
+    // not part of the undo snapshot: recording would only add empty undo steps
+  }, { record: false, key: key ? 'yt-' + key : undefined });
 }
 
 const STOP = new Set(
@@ -127,8 +128,9 @@ export interface UploadResult {
 }
 
 /** Upload an exported file with the project's metadata (and thumbnail when designed). */
-export async function uploadToYoutube(path: string): Promise<UploadResult> {
-  const p = get().project!;
+/** Upload a rendered file. `project` is the project it was made from (a background export may outlive it being open). */
+export async function uploadToYoutube(path: string, project?: Project, projectPath?: string | null): Promise<UploadResult> {
+  const p = project || get().project!;
   const m = metaOf(p);
   const settings = await window.cv.invoke<{ ytTemplate?: string }>('settings:get');
   const description = fullDescription(p, m, settings.ytTemplate || '');
@@ -141,10 +143,17 @@ export async function uploadToYoutube(path: string): Promise<UploadResult> {
     thumbPath,
     meta: { title: m.title.trim(), description, tags: m.tags, category: m.category, privacy: m.privacy, publishAt: m.publishAt, madeForKids: m.madeForKids, language: m.language },
   });
-  edit((d) => {
-    d.yt = { ...metaOf(d as Project), ...(d.yt || {}), videoId: r.videoId, uploadedAt: Date.now() };
-    if (!m.publishAt && m.privacy === 'public') d.status = 'published';
-  }, { record: false });
+  const published = !m.publishAt && m.privacy === 'public';
+  if (get().project?.id === p.id) {
+    edit((d) => {
+      d.yt = { ...metaOf(d as Project), ...(d.yt || {}), videoId: r.videoId, uploadedAt: Date.now() };
+      if (published) d.status = 'published';
+    }, { record: false });
+  } else if (projectPath) {
+    // another project is open now: record the upload in the right file
+    const yt = { ...m, ...(p.yt || {}), videoId: r.videoId, uploadedAt: Date.now() };
+    await window.cv.invoke('project:patch', projectPath, published ? { yt, status: 'published' } : { yt });
+  }
   return r;
 }
 

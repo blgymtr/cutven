@@ -18,6 +18,7 @@ import { volAt, localAt, moveKey, deleteKey, toggleKeyAtPlayhead } from '../lib/
 import { waveforms, stripImage, importPaths } from '../lib/media';
 import { showMenu } from './ui';
 import { DND_TYPE } from './MediaPanel';
+import { shiftedKeys } from '../lib/vkeys';
 
 const HEAD_W = 184;
 const RULER_H = 28;
@@ -26,6 +27,8 @@ const MIN_PPS = 0.5;
 const MAX_PPS = 600;
 
 const EMPTY: string[] = [];
+/** clip canvases cover the visible part plus a margin in steps of CHUNK px, so scrolling rarely redraws them */
+const CHUNK = 512;
 
 /* ------------------------------------------------------------------ ruler */
 
@@ -231,8 +234,9 @@ interface DragApi {
 const ClipView = memo(function ClipView({ c, laneH, drag, dragging }: { c: Clip; laneH: number; drag: DragApi; dragging: boolean }) {
   const pps = useStore((s) => s.pps);
   const sel = useStore((s) => s.selection.includes(c.id));
-  const scrollLeft = useStore((s) => s.scrollLeft);
-  const viewW = useStore((s) => s.viewW);
+  // only re-render when the scroll position crosses a CHUNK boundary (not on every scrolled pixel)
+  const scrollChunk = useStore((s) => Math.floor(s.scrollLeft / CHUNK));
+  const viewChunks = useStore((s) => Math.ceil(s.viewW / CHUNK));
   const media = useStore((s) => (c.mediaId ? s.project!.media.find((m) => m.id === c.mediaId) : undefined));
   const rt = useStore((s) => (c.mediaId ? s.runtime[c.mediaId] : undefined));
   const cvRef = useRef<HTMLCanvasElement>(null);
@@ -240,12 +244,15 @@ const ClipView = memo(function ClipView({ c, laneH, drag, dragging }: { c: Clip;
 
   const left = c.start * pps;
   const width = Math.max(3, clipDur(c) * pps);
-  const visL = clamp(scrollLeft - left - 50, 0, width);
-  const visR = clamp(scrollLeft + viewW - HEAD_W - left + 50, 0, width);
-  const visW = Math.max(0, Math.floor(visR - visL));
+  const visL = Math.floor(clamp((scrollChunk - 1) * CHUNK - left, 0, width));
+  const visR = Math.ceil(clamp((scrollChunk + viewChunks + 1) * CHUNK - left, 0, width));
+  const visW = Math.max(0, visR - visL);
+  // the name follows the left edge of the view while the clip is scrolled past it
+  const labelX = useStore((s) => Math.round(clamp(s.scrollLeft - left, 0, Math.max(0, width - 120))));
   const h = laneH - 8;
 
-  useEffect(() => {
+  // layout effect: the canvas moves/resizes in the same frame as its content is redrawn
+  useLayoutEffect(() => {
     const cv = cvRef.current;
     if (!cv || visW <= 0) return;
     const dpr = window.devicePixelRatio || 1;
@@ -354,7 +361,7 @@ const ClipView = memo(function ClipView({ c, laneH, drag, dragging }: { c: Clip;
       {fi > 1 && <div className="fade in" style={{ width: fi }} />}
       {fo > 1 && <div className="fade out" style={{ width: fo }} />}
       {width > 28 && (
-        <div className="label" style={{ paddingLeft: Math.max(0, Math.min(visL, width - 120)) }}>
+        <div className="label" style={{ paddingLeft: labelX }}>
           <Icon size={11} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{missing ? 'Dosya bulunamadı' : name}</span>
           {c.speed !== 1 && (
@@ -409,6 +416,23 @@ function TrackHead({ t, isMain, h }: { t: Track; isMain: boolean; h: number }) {
   );
 }
 
+/** ◆ button: only this re-renders while the playhead moves (not the whole timeline) */
+function VolKeyButton({ clip }: { clip?: Clip }) {
+  const on = useStore(
+    (s) => !!clip?.vkeys?.length && clip.vkeys.some((k) => Math.abs(localAt(clip, k.s) + clip.start - s.time) < 1 / 30 + 1e-3),
+  );
+  return (
+    <button
+      className={'icon-btn' + (on ? ' on' : '')}
+      title="Ses anahtar karesi ekle/kaldır (K) — oynatma imlecinde"
+      disabled={!clip}
+      onClick={() => clip && toggleKeyAtPlayhead(clip.id)}
+    >
+      <Diamond size={16} />
+    </button>
+  );
+}
+
 function RecGhost() {
   const rec = useStore((s) => s.rec);
   const pps = useStore((s) => s.pps);
@@ -449,7 +473,6 @@ export default function Timeline() {
   const pps = useStore((s) => s.pps);
   const snapping = useStore((s) => s.snapping);
   const viewW = useStore((s) => s.viewW);
-  const scrollLeft = useStore((s) => s.scrollLeft);
   const selection = useStore((s) => s.selection) || EMPTY;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -468,10 +491,16 @@ export default function Timeline() {
     set({ viewW: el.clientWidth });
     return () => ro.disconnect();
   }, []);
-  useEffect(() => {
-    const el = scrollRef.current!;
-    if (Math.abs(el.scrollLeft - scrollLeft) > 1) el.scrollLeft = scrollLeft;
-  }, [scrollLeft]);
+  // scroll requests from elsewhere (store) → element; without re-rendering the timeline on every scroll
+  useEffect(
+    () =>
+      useStore.subscribe((s, prev) => {
+        if (s.scrollLeft === prev.scrollLeft) return;
+        const el = scrollRef.current;
+        if (el && Math.abs(el.scrollLeft - s.scrollLeft) > 1) el.scrollLeft = s.scrollLeft;
+      }),
+    [],
+  );
 
   /* --- follow playhead while playing */
   useEffect(
@@ -494,25 +523,42 @@ export default function Timeline() {
   }, []);
 
   /* --- zoom */
-  const zoomTo = useCallback((next: number, anchorClientX?: number) => {
+  // scroll position the next render must apply (several wheel events can arrive before the DOM updates)
+  const pendingScroll = useRef<number | null>(null);
+  const zoomTo = useCallback((next: number, anchorClientX?: number, scrollTo?: number) => {
     const el = scrollRef.current!;
     const cur = get().pps;
     next = clamp(next, MIN_PPS, MAX_PPS);
-    const r = el.getBoundingClientRect();
-    const ax = anchorClientX != null ? anchorClientX - r.left - HEAD_W : get().time * cur - el.scrollLeft;
-    const t = (el.scrollLeft + ax) / cur;
-    set({ pps: next });
-    requestAnimationFrame(() => {
-      el.scrollLeft = Math.max(0, t * next - ax);
-      set({ scrollLeft: el.scrollLeft });
-    });
+    const sl = pendingScroll.current ?? el.scrollLeft;
+    let target: number;
+    if (scrollTo != null) target = scrollTo;
+    else {
+      // keep the time under the anchor (mouse, or the playhead) at the same place on screen
+      const r = el.getBoundingClientRect();
+      const ax = anchorClientX != null ? anchorClientX - r.left - HEAD_W : get().time * cur - sl;
+      const t = (sl + ax) / cur;
+      target = Math.max(0, t * next - ax);
+    }
+    if (next === cur) {
+      // zoom limit reached: no re-render will come, scroll right away (or update the pending one)
+      if (Math.abs(target - sl) < 0.5) return;
+      if (pendingScroll.current != null) pendingScroll.current = target;
+      else el.scrollLeft = target;
+      return;
+    }
+    pendingScroll.current = target;
+    set({ pps: next, scrollLeft: target });
   }, []);
+  useLayoutEffect(() => {
+    const el = scrollRef.current!;
+    if (pendingScroll.current == null) return;
+    el.scrollLeft = pendingScroll.current;
+    pendingScroll.current = null;
+    if (Math.abs(get().scrollLeft - el.scrollLeft) > 0.5) set({ scrollLeft: el.scrollLeft });
+  }, [pps]);
   const fit = () => {
     const d = Math.max(5, projectDuration(get().project!));
-    zoomTo((viewW - HEAD_W - 60) / d);
-    requestAnimationFrame(() => {
-      scrollRef.current!.scrollLeft = 0;
-    });
+    zoomTo((viewW - HEAD_W - 60) / d, undefined, 0);
   };
 
   useEffect(() => {
@@ -543,13 +589,37 @@ export default function Timeline() {
     const fps = get().project!.fps;
     const go = (x: number) => engine.seek(Math.round(timeAtClientX(x) * fps) / fps);
     go(e.clientX);
-    const move = (ev: PointerEvent) => go(ev.clientX);
+    let lastX = e.clientX;
+    // dragging the playhead against the left / right edge scrolls the timeline along
+    let raf = 0;
+    const edge = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const zr = r.right - 28;
+      const zl = r.left + HEAD_W + 28;
+      const v = lastX > zr ? Math.min(48, (lastX - zr) / 2 + 4) : lastX < zl && el.scrollLeft > 0 ? -Math.min(48, (zl - lastX) / 2 + 4) : 0;
+      if (v) {
+        const before = el.scrollLeft;
+        el.scrollLeft = Math.max(0, before + v);
+        if (el.scrollLeft !== before) go(lastX);
+      }
+      raf = requestAnimationFrame(edge);
+    };
+    raf = requestAnimationFrame(edge);
+    const move = (ev: PointerEvent) => {
+      lastX = ev.clientX;
+      go(ev.clientX);
+    };
     const up = () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   /* --- rows under pointer */
@@ -689,6 +759,8 @@ export default function Timeline() {
             const cl = d.clips.find((x) => x.id === c.id)!;
             cl.in = ni;
             cl.out = no;
+            // text / image / colour: a head trim shifts their time origin (see shiftedKeys)
+            if (!sourced && mode === 'l') cl.keys = shiftedKeys(o.keys, (o.out - no) * o.speed);
             for (const a of after) {
               const x = d.clips.find((q) => q.id === a.id);
               if (x) x.start = Math.max(0, a.start + delta);
@@ -738,7 +810,10 @@ export default function Timeline() {
             const cl = d.clips.find((x) => x.id === c.id)!;
             cl.start = ns;
             if (c.kind === 'video' || c.kind === 'audio') cl.in = Math.max(0, o.in + dd * o.speed);
-            else cl.out = Math.max(fr, o.out - dd);
+            else {
+              cl.out = Math.max(fr, o.out - dd);
+              cl.keys = shiftedKeys(o.keys, dd * o.speed);
+            }
           }, { record: false });
         } else {
           let ne = clipEnd(o) + dt;
@@ -851,10 +926,8 @@ export default function Timeline() {
 
   const hasClips = project.clips.length > 0;
   const selAudio = selection.length === 1 ? project.clips.find((c) => c.id === selection[0] && (c.kind === 'audio' || c.kind === 'video')) : undefined;
-  const nowT = useStore((s) => s.time);
   const tool = useStore((s) => s.tool);
   const shuttle = useStore((s) => s.shuttle);
-  const selKey = !!selAudio && !!selAudio.vkeys?.length && (selAudio.vkeys || []).some((k) => Math.abs(localAt(selAudio, k.s) + selAudio.start - nowT) < 1 / 30 + 1e-3);
 
   return (
     <div className="timeline">
@@ -893,14 +966,7 @@ export default function Timeline() {
         >
           <AudioLines size={16} />
         </button>
-        <button
-          className={'icon-btn' + (selKey ? ' on' : '')}
-          title="Ses anahtar karesi ekle/kaldır (K) — oynatma imlecinde"
-          disabled={!selAudio}
-          onClick={() => selAudio && toggleKeyAtPlayhead(selAudio.id)}
-        >
-          <Diamond size={16} />
-        </button>
+        <VolKeyButton clip={selAudio} />
         <div className="vsep" />
         <button className="icon-btn" title="Bölüm işaretçisi ekle (M)" onClick={() => addMarker()}>
           <Bookmark size={16} />

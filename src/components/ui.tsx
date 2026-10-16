@@ -12,10 +12,16 @@ export function Slider(props: {
   /** display multiplier (e.g. 100 for percent) */
   mult?: number;
   digits?: number;
+  /** logarithmic track (for ratios like scale: 100% sits near the middle, not at 19%) */
+  log?: boolean;
   onChange: (v: number) => void;
 }) {
-  const { label, value, min, max, step = 0.01, def, unit = '', mult = 1, digits = 0, onChange } = props;
-  const pct = ((value - min) / (max - min)) * 100;
+  const { label, value, min, max, step = 0.01, def, unit = '', mult = 1, digits = 0, log = false, onChange } = props;
+  const toPos = (v: number) => (log ? Math.log(Math.max(min, v)) : v);
+  const fromPos = (x: number) => (log ? +(Math.round(Math.exp(x) / step) * step).toFixed(6) : x);
+  const lo = toPos(min);
+  const hi = toPos(max);
+  const pct = Math.min(100, Math.max(0, ((toPos(value) - lo) / (hi - lo)) * 100));
   const [txt, setTxt] = useState<string | null>(null);
   const shown = (value * mult).toFixed(digits);
   return (
@@ -26,12 +32,12 @@ export function Slider(props: {
       <div className="slider">
         <input
           type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
+          min={lo}
+          max={hi}
+          step={log ? 0.001 : step}
+          value={toPos(value)}
           style={{ ['--p' as any]: `${pct}%` }}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
+          onChange={(e) => onChange(Math.min(max, Math.max(min, fromPos(parseFloat(e.target.value)))))}
           onDoubleClick={() => def != null && onChange(def)}
         />
         <input

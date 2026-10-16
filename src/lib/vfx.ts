@@ -687,10 +687,10 @@ export async function vfxFfmpeg(c: Clip, inp: string, w: number, h: number, ctx:
       }
       case 'strobe': {
         const P = strobeP(a);
-        const wc = ctx.label();
         const o = ctx.label();
-        ctx.lines.push(`color=c=white@0.85:s=${w}x${h}:r=${ctx.fps}:d=${r4(ctx.L)},format=rgba[${wc}]`);
-        ctx.lines.push(`[${cur}][${wc}]overlay=0:0:format=rgb:shortest=1:enable='lt(mod(t+0.001,${r4(P)}),${STROBE_D})'[${o}]`);
+        // 85 % white on the clip's own pixels only (preview: source-atop); transparent parts stay transparent
+        const v = `'val*0.15+216.75'`;
+        ctx.lines.push(`[${cur}]lutrgb=r=${v}:g=${v}:b=${v}:enable='lt(mod(t+0.001,${r4(P)}),${STROBE_D})'[${o}]`);
         cur = o;
         break;
       }

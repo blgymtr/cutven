@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Maximize2, RotateCw, Upload, Mic } from 'lucide-react';
 import { useStore, get, set, select, beginGesture, edit } from '../store';
 import { resolveKeys, setProp } from '../lib/vkeys';
@@ -95,7 +95,8 @@ function SelectionOverlay({ k }: { k: number }) {
         }, { record: false });
       } else if (mode === 'scale') {
         const d = Math.hypot(pt.x - box.cx, pt.y - box.cy);
-        let s = Math.max(0.05, Math.min(10, (c0.scale * d) / d0));
+        // same range as the inspector's scale slider
+        let s = Math.max(0.05, Math.min(5, (c0.scale * d) / d0));
         if (!ev.altKey && Math.abs(s - 1) < 0.03) s = 1;
         edit((dr) => {
           const c = dr.clips.find((q) => q.id === clip.id);
@@ -199,13 +200,14 @@ export default function Preview() {
     return () => ro.disconnect();
   }, [pw, ph]);
 
-  useEffect(() => {
-    const cv = canvasRef.current!;
-    const dpr = window.devicePixelRatio || 1;
-    cv.width = Math.round(size.w * dpr);
-    cv.height = Math.round(size.h * dpr);
-    engine.attach(cv);
+  useLayoutEffect(() => {
+    engine.attach(canvasRef.current);
     return () => engine.attach(null);
+  }, []);
+  // resize the bitmap in the same frame as the box (no stretched / blank frame in between)
+  useLayoutEffect(() => {
+    const dpr = window.devicePixelRatio || 1;
+    engine.resize(Math.round(size.w * dpr), Math.round(size.h * dpr));
   }, [size]);
 
   const k = size.w / pw;
