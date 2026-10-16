@@ -194,6 +194,8 @@ npm run dist
 
 Çıktı `release/` klasörüne yazılır.
 
+GitHub'a her gönderimde **Windows kurulum dosyası** otomatik derlenir (`.github/workflows/windows-build.yml`): Actions sekmesinde ilgili çalışmayı aç, en alttaki **Artifacts** bölümünden `Cutven-Setup-…` dosyasını indir. Elle başlatmak için: Actions → *Windows kurulum dosyası* → *Run workflow*.
+
 ### Teknoloji
 
 - **Electron** — masaüstü kabuğu, dosya erişimi, ekran/kamera kaydı

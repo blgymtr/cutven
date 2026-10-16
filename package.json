@@ -69,6 +69,7 @@
       "node_modules/ffmpeg-static/**",
       "node_modules/onnxruntime-node/**"
     ],
+    "npmRebuild": false,
     "fileAssociations": [
       {
         "ext": "cutven",

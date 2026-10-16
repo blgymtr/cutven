@@ -1,0 +1,60 @@
+name: Windows kurulum dosyası
+
+# Builds release/Cutven-Setup-<version>.exe on a Windows runner and attaches it to the run
+# (Actions → this run → Artifacts). Runs on every push and can be started by hand.
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıklar
+        run: npm ci
+
+      - name: Tip denetimi
+        run: npx tsc --noEmit
+
+      - name: Arayüz derlemesi
+        run: npx vite build
+
+      - name: Kurulum dosyası (NSIS)
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Paket içeriği kontrolü
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release -Filter 'Cutven-Setup-*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'Kurulum dosyası oluşmadı' }
+          "{0}  {1:N1} MB" -f $exe.Name, ($exe.Length / 1MB)
+          $u = 'release/win-unpacked/resources/app.asar.unpacked/node_modules'
+          foreach ($f in @("$u/ffmpeg-static/ffmpeg.exe", "$u/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime_binding.node")) {
+            if (-not (Test-Path $f)) { throw "Eksik: $f" }
+            "OK  $f"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cutven-Setup-${{ github.sha }}
+          path: release/Cutven-Setup-*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
