@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Film, Trash2, Clapperboard, CalendarDays, MoreHorizontal, Pencil, CalendarPlus, Play, AlertCircle, X } from 'lucide-react';
+import { FolderOpen, Film, Trash2, Clapperboard, CalendarDays, MoreHorizontal, Pencil, CalendarPlus, Play, AlertCircle, X, Video } from 'lucide-react';
 import type { ProjectStatus, ProjectSummary } from '../types';
 import { ASPECTS, newProject, openProject, createPlannedProject } from '../lib/project';
 import { formatDuration, timeAgo } from '../lib/util';
 import { STATUSES, statusOf, todayStr, addDays, dayLabel, parseDate } from '../lib/plan';
 import { Logo } from './TopBar';
 import { askConfirm, showMenu } from './ui';
-import { toast } from '../store';
+import { toast, set } from '../store';
+import { StudioBadge } from './studio/Studio';
 
 export function Shape({ w, h, size = 40, children }: { w: number; h: number; size?: number; children?: React.ReactNode }) {
   const s = size / Math.max(w, h);
@@ -236,6 +237,8 @@ export default function StartScreen() {
           <Logo />
           Cutven
         </div>
+        <div className="spacer" />
+        <StudioBadge />
       </div>
       <div className="start-body">
         <div className="start-inner">
@@ -245,6 +248,9 @@ export default function StartScreen() {
               <p>Bir format seç, videolarını sürükle, gerisini birlikte halledelim.</p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn primary" onClick={() => set({ screen: 'studio', studioBack: 'start' })} title="Ekran, kamera ve sesi sahnelerle kaydet ya da yayınla (OBS gibi)">
+                <Video size={15} /> Kayıt stüdyosu
+              </button>
               <button className="btn" onClick={() => setEditing('new')}>
                 <CalendarPlus size={15} /> Video planla
               </button>

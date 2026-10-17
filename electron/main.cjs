@@ -18,6 +18,10 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.setName('Cutven');
+// the recording studio keeps composing and encoding while the window is minimised or covered
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 if (process.env.CUTVEN_FAKE_MIC) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
@@ -28,6 +32,7 @@ if (process.platform === 'win32') app.setAppUserModelId('com.cutven.app');
 
 let win = null;
 let asr = null;
+let studio = null;
 let pendingScreen = { id: '', audio: false };
 const fileFromArgv = (argv) => argv.slice(1).find((a) => a.toLowerCase().endsWith('.cutven') && fs.existsSync(a)) || null;
 let pendingOpen = fileFromArgv(process.argv);
@@ -637,9 +642,10 @@ function registerIpc() {
     return s.path;
   });
 
-  h('screen:sources', async () => {
-    const list = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
-    return list.map((s) => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), screen: s.id.startsWith('screen') }));
+  h('screen:sources', async (thumbs = true) => {
+    // thumbs=false: just the ids (much faster, no thumbnail rendering for every window)
+    const list = await desktopCapturer.getSources({ types: thumbs ? ['screen', 'window'] : ['screen'], thumbnailSize: thumbs ? { width: 320, height: 180 } : { width: 0, height: 0 } });
+    return list.map((s) => ({ id: s.id, name: s.name, thumb: thumbs ? s.thumbnail.toDataURL() : '', screen: s.id.startsWith('screen') }));
   });
   h('screen:select', (id, audio) => {
     pendingScreen = { id, audio: !!audio };
@@ -735,14 +741,22 @@ function registerIpc() {
       return {};
     }
   });
-  h('settings:set', async (patch) => {
-    let cur = {};
-    try {
-      cur = JSON.parse(await fsp.readFile(SETTINGS, 'utf8'));
-    } catch {}
-    const next = { ...cur, ...patch };
-    await fsp.writeFile(SETTINGS, JSON.stringify(next, null, 2));
-    return next;
+  // one write at a time: two panels saving at once must not drop each other's keys
+  let settingsQueue = Promise.resolve();
+  h('settings:set', (patch) => {
+    const run = async () => {
+      let cur = {};
+      try {
+        cur = JSON.parse(await fsp.readFile(SETTINGS, 'utf8'));
+      } catch {}
+      const next = { ...cur, ...patch };
+      await fsp.writeFile(SETTINGS + '.tmp', JSON.stringify(next, null, 2));
+      await fsp.rename(SETTINGS + '.tmp', SETTINGS);
+      return next;
+    };
+    const p = settingsQueue.then(run, run);
+    settingsQueue = p.catch(() => {});
+    return p;
   });
 
   /* --- project file edits from the start screen --- */
@@ -830,6 +844,7 @@ function registerIpc() {
   require('./youtube.cjs').register(h, (ch, d) => win?.webContents.send(ch, d));
   require('./live.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), FFMPEG);
   asr = require('./asr.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), { runFF, TEMP_DIR, userData: app.getPath('userData') });
+  studio = require('./studio.cjs').register(h, (ch, d) => win?.webContents.send(ch, d), { runFF, getWin: () => win, safeName });
   /** Scene cuts (seconds, source time) via ffmpeg's scene score. */
   h('media:scenes', async (file, from, to, threshold) => {
     const args = ['-hide_banner', '-ss', String(from || 0)];
@@ -880,6 +895,21 @@ function createWindow() {
     if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // closing while the studio records / streams: ask, then let the renderer finish the file first
+  win.on('close', (e) => {
+    if (!studio?.holdClose()) return;
+    e.preventDefault();
+    const r = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Kaydı bitir ve kapat', 'Vazgeç'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Kayıt sürüyor',
+      message: 'Kayıt ya da yayın hâlâ sürüyor.',
+      detail: 'Kapatırsan kayıt durdurulur ve dosya kaydedilir.',
+    });
+    if (r === 0) win.webContents.send('studio:closeRequest');
+  });
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith('file://') && !(DEV_URL && url.startsWith(DEV_URL))) e.preventDefault();
   });
@@ -925,6 +955,7 @@ if (!gotLock) {
     } catch {}
     if (exportProc) exportProc.kill();
     asr?.dispose();
+    studio?.dispose();
     fs.rmSync(TEMP_DIR, { recursive: true, force: true });
     app.quit();
   });

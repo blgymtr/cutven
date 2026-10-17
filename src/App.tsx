@@ -17,6 +17,7 @@ import Timeline from './components/Timeline';
 import ExportDialog from './components/ExportDialog';
 import ThumbDialog from './components/ThumbDialog';
 import CaptureDialog from './components/CaptureDialog';
+import Studio from './components/studio/Studio';
 import { Boundary, ConfirmHost, MenuHost } from './components/ui';
 import { ShortcutsDialog, SourceMonitor, VersionsDialog } from './components/ProDialogs';
 import { markIn, markOut, clearInOut, markSelection, lift, extract, rippleTrim, addEditAll, placeSource } from './lib/proedit';
@@ -272,7 +273,15 @@ export default function App() {
   }, []);
   return (
     <>
-      {screen === 'start' ? <StartScreen /> : <Editor />}
+      {screen === 'start' ? (
+        <StartScreen />
+      ) : screen === 'studio' ? (
+        <Boundary name="Kayıt stüdyosu">
+          <Studio />
+        </Boundary>
+      ) : (
+        <Editor />
+      )}
       <Toasts />
       <MenuHost />
       <ConfirmHost />

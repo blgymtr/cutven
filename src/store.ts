@@ -36,7 +36,9 @@ export interface Take {
 }
 
 export interface State {
-  screen: 'start' | 'editor';
+  screen: 'start' | 'editor' | 'studio';
+  /** where the recording studio returns to */
+  studioBack: 'start' | 'editor';
   project: Project | null;
   projectPath: string | null;
   saveState: 'saved' | 'saving' | 'dirty';
@@ -72,6 +74,7 @@ export interface State {
 
 export const useStore = create<State>(() => ({
   screen: 'start',
+  studioBack: 'start',
   project: null,
   projectPath: null,
   saveState: 'saved',

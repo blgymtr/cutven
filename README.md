@@ -68,6 +68,22 @@ Projeyi tarayıp "yayına hazırlık" puanı verir ve tek tıkla düzeltmeler ö
 ### 📺 YouTube
 Başlık, açıklama (bölümler, kanal şablonu ve hashtag'ler otomatik eklenir), etiket önerisi, kategori, dil, gizlilik ve planlı yayın. Kendi Google hesabını bağlayınca video ve küçük resim doğrudan yüklenir; istersen dışa aktarma biter bitmez otomatik.
 
+### 🎥 Kayıt stüdyosu (OBS gibi)
+Cutven aynı zamanda tam bir kayıt ve yayın programıdır. Ana ekrandan ya da editördeki **Stüdyo** düğmesinden açılır.
+- **Sahneler ve kaynaklar:** ekran, pencere, kamera, görsel, video dosyası, yazı ve renk; sınırsız sahne, hazır şablonlar (Ekran + köşede kamera, Sadece kamera, Başlıyoruz…)
+- **Tuvalde düzenleme:** sürükle, köşelerden boyutlandır, kenarlara ve ortaya yapışma, ok tuşlarıyla kaydırma, kırpma, Sığdır / Kapla / Ortala / Köşe
+- **Kaynak filtreleri:** yeşil ekran, ayna, daire / yuvarlak köşe maske, kenarlık, opaklık, parlaklık / kontrast / doygunluk
+- **Ses mikseri:** masaüstü sesi, birden çok mikrofon, kaynak sesleri; dB fader, VU metre, susturma, kulaklıktan dinleme, gürültü engelleme, gürültü kapısı, kompresör, kazanç, gecikme (dudak senkronu)
+- **Kayıt:** MP4 ya da MKV, H.264 (ekran kartıyla) / VP9 / AV1, kalite ya da özel bit hızı, 720p – 4K, 30 / 60 fps, dikey (Shorts) tuval; duraklat / devam, geri sayım
+- **Çökmeye dayanıklı:** kayıt diske akarak yazılır; elektrik kesilirse bir sonraki açılışta kurtarılır
+- **Yayın + kayıt aynı anda** (YouTube Live ya da herhangi bir RTMP sunucusu)
+- **Stüdyo modu:** sahneyi önizlemede hazırla, **Geçiş** ile yayına al; geçişler: kes, solma, kaydırma, yakınlaşma
+- **Global kısayollar** (oyun ya da tarayıcı öndeyken de): kayıt Alt+F9, duraklat Alt+F10, mikrofonu sustur Alt+F8, ekran görüntüsü Alt+F7; hepsi değiştirilebilir
+- Cutven penceresi ekran kaydında görünmez (sonsuz ayna yok), kayıtta pencereyi küçültme seçeneği
+- Durum çubuğu: kayıt süresi, dosya boyutu, bit hızı, kare hızı ve gecikmeli kare, işlemci, boş disk
+- **Kayıt arka planda sürer:** kurguya geçebilirsin; üst çubukta ● KAYIT rozeti görünür
+- Bitince **tek tıkla kurgu:** açık projeye ekle ya da yeni projede aç
+
 ### 🔴 Canlı yayın
 Ekran, kamera ya da ikisi birden (köşede yuvarlak kamera), başlık bandı, mikrofon ve bilgisayar sesi ile YouTube Live'a (veya herhangi bir RTMP adresine) yayın; aynı anda bilgisayara kayıt. 720p / 1080p / 1080p60.
 
@@ -209,6 +225,7 @@ GitHub'a her gönderimde **Windows kurulum dosyası** otomatik derlenir (`.githu
 ```
 electron/        Ana süreç: pencere, IPC, FFmpeg işleri, dosya akışı
   asr.cjs           Otomatik altyazı: ses çıkarma, model önbelleği, arka plan süreci
+  studio.cjs        Kayıt stüdyosu: dosyaya yazma, MP4/MKV'ye çevirme, kurtarma, global kısayollar
   asr-core.cjs      Konuşma tespiti (VAD), Whisper ile yazıya dökme
 src/
   components/    Arayüz bileşenleri (zaman çizelgesi, önizleme, paneller…)
@@ -224,6 +241,7 @@ src/
     keygl.ts        Yeşil ekran (önizleme, FFmpeg chromakey ile aynı formül)
     captions.ts     Altyazılar (SRT/VTT, otomatik zamanlama, gömme)
     autocaptions.ts Konuşmadan otomatik altyazı (kaynak seçimi, ilerleme)
+    studio/         Kayıt stüdyosu: sahneler ve ayarlar (state.ts), kompozitör, mikser, kayıt, yayın (engine.ts)
     proedit.ts      Giriş/çıkış, lift/extract, üç noktalı kurgu
     mix.ts          İz mikseri ve loudness ölçer
     interchange.ts  FCP7 XML, EDL, OpenTimelineIO

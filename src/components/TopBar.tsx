@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays, Smartphone, History, FileOutput, Keyboard } from 'lucide-react';
+import { Undo2, Redo2, Download, ChevronLeft, Camera, FolderInput, Save, CalendarDays, Smartphone, History, FileOutput, Keyboard, Video } from 'lucide-react';
 import { convertToShorts } from '../lib/convert';
 import { set, undo, redo, useStore, edit, toast } from '../store';
 import { exportInterchange } from './ProDialogs';
@@ -8,6 +8,7 @@ import { closeProject, saveProject, saveProjectAs, renameProject } from '../lib/
 import { STATUSES, statusOf, dayLabel } from '../lib/plan';
 import { engine } from '../lib/engine';
 import { showMenu } from './ui';
+import { StudioBadge } from './studio/Studio';
 
 export function Logo({ size = 22 }: { size?: number }) {
   return (
@@ -112,6 +113,7 @@ export default function TopBar() {
       </button>
       <PlanChip />
       <div className="spacer" />
+      <StudioBadge />
       <ExportChip />
       <button className="icon-btn" title="Geri al (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
         <Undo2 size={16} />
@@ -120,6 +122,9 @@ export default function TopBar() {
         <Redo2 size={16} />
       </button>
       <div className="sep" />
+      <button className="btn ghost" title="Kayıt stüdyosu: ekran, kamera ve sesi sahnelerle kaydet / yayınla" onClick={() => set({ screen: 'studio', studioBack: 'editor' })}>
+        <Video size={15} /> Stüdyo
+      </button>
       <button className="btn ghost" title="Geçerli kareyi PNG olarak kaydet" onClick={saveFrame}>
         <Camera size={15} /> Kare kaydet
       </button>

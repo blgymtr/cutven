@@ -30,6 +30,7 @@ import './styles.css';
 import './features.css';
 import './v2.css';
 import './v3.css';
+import './studio.css';
 import App from './App';
 
 createRoot(document.getElementById('root')!).render(<App />);
